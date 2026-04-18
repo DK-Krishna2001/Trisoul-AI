@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trisoul</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css?v=10">
+    <!-- Spline 3D Web Component -->
+    <script type="module" src="https://unpkg.com/@splinetool/viewer@1.0.94/build/spline-viewer.js"></script>
+</head>
+
+<body>
+    <!-- Interactive 3D Spline Background -->
+    <spline-viewer url="https://prod.spline.design/9U0i6rQrMwVVFt1A/scene.splinecode"
+        class="spline-background"></spline-viewer>
+
+    <!-- Landing Page -->
+    <div id="landingPage" class="landing-container active">
+        <!-- Hero Section (Left side) -->
+        <div class="landing-hero-section">
+            <div class="landing-logo">
+                <i class="fa-solid fa-brain"></i>
+            </div>
+            <h1>Trisoul</h1>
+            <p class="landing-tagline">Your Empathetic AI Companion</p>
+            <p class="landing-description">
+                Experience a safe space to share your thoughts, track your emotional journey, and discover insights
+                about yourself. Trisoul is here to listen, 24/7.
+            </p>
+            <button id="getStartedBtn" class="get-started-btn">Get Started</button>
+        </div>
+
+        <!-- Features Section (Right side) -->
+        <div class="landing-features-section">
+            <div class="features-grid">
+                <div class="feature-card">
+                    <i class="fa-solid fa-ear-listen feature-icon"></i>
+                    <h3>Compassionate Edge</h3>
+                    <p>Advanced emotional intelligence that adapts to your voice and text.</p>
+                </div>
+                <div class="feature-card">
+                    <i class="fa-solid fa-chart-line feature-icon"></i>
+                    <h3>Dynamic Mood</h3>
+                    <p>Visualize your highs and lows to uncover personal patterns.</p>
+                </div>
+                <div class="feature-card">
+                    <i class="fa-solid fa-sparkles feature-icon"></i>
+                    <h3>AI Insights</h3>
+                    <p>Receive synthesized weekly reflections and clinical-style reports.</p>
+                </div>
+                <div class="feature-card">
+                    <i class="fa-solid fa-shield-halved feature-icon"></i>
+                    <h3>Absolute Privacy</h3>
+                    <p>Context firewalls lock your thoughts strictly within your personal vault.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App Container (Hidden originally) -->
+    <div class="app-container" id="mainAppContainer" style="display: none;">
+        <!-- History Sidebar (Left) -->
+        <aside class="left-sidebar" id="historySidebar">
+            <div class="sidebar-header">
+                <h2><i class="fa-solid fa-clock-rotate-left"></i> History</h2>
+                <button class="new-chat-btn" id="newChatBtnPrimary" title="New Chat"><i
+                        class="fa-solid fa-pen-to-square"></i></button>
+            </div>
+            <div class="sidebar-content chat-history-list" id="chatHistoryList">
+                <div class="history-loading">Loading history...</div>
+            </div>
+        </aside>
+
+        <!-- Mood Dashboard Sidebar (Right) -->
+        <aside class="right-sidebar closed" id="moodSidebar">
+            <div class="sidebar-header">
+                <h2><i class="fa-solid fa-chart-line"></i> Session Mood</h2>
+                <button class="close-sidebar-btn" id="closeSidebarBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="sidebar-content">
+                <p class="subtitle">Your Emotional Journey</p>
+                <div class="chart-container">
+                    <canvas id="moodChart"></canvas>
+                </div>
+                <div class="recent-insights" id="recentInsights">
+                    <!-- Dynamic insights populated here -->
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="main-content">
+            <header class="chat-header">
+                <div class="logo-area">
+                    <div class="logo-icon"><i class="fa-solid fa-brain"></i></div>
+                    <h1>Trisoul</h1>
+                </div>
+                <div class="dashboard-controls">
+                    <button class="dashboard-btn global-dashboard-btn" id="openGlobalDashboardBtn">
+                        <i class="fa-solid fa-globe"></i> Global Analytics
+                    </button>
+                    <button class="dashboard-btn" id="openSidebarBtn">
+                        <i class="fa-solid fa-chart-simple"></i> Session Mood
+                    </button>
+                    <button class="dashboard-btn" id="logoutBtn" style="border-color: #fc8181; color: #fc8181;">
+                        <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout
+                    </button>
+                </div>
+            </header>
+
+            <div class="chat-wrapper" id="chatWrapper">
+                <!-- Chat messages go here -->
+                <div class="welcome-message">
+                    <div class="welcome-icon"><i class="fa-solid fa-leaf"></i></div>
+                    <h2>Welcome to Trisoul</h2>
+                    <p>I'm here to listen, support, and help you navigate your thoughts. How are you feeling today?</p>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-container">
+                <!-- Attachment Preview Area -->
+                <div id="attachmentPreviewBox" class="attachment-preview-box" style="display: none;">
+                    <div class="attachment-info">
+                        <i id="attachmentIcon" class="fa-solid fa-file"></i>
+                        <span id="attachmentName">filename.ext</span>
+                    </div>
+                    <button id="removeAttachmentBtn" class="remove-attachment-btn" title="Remove attachment"><i
+                            class="fa-solid fa-xmark"></i></button>
+                </div>
+
+                <div class="input-box">
+                    <input type="file" id="fileInput" accept="image/*,.pdf,.txt" style="display: none;">
+                    <div class="attachment-menu" id="attachmentMenu">
+                        <button type="button" class="attachment-menu-item" id="attachImageBtn">
+                            <i class="fa-solid fa-image"></i> Image
+                        </button>
+                        <button type="button" class="attachment-menu-item" id="attachFileBtn">
+                            <i class="fa-solid fa-file-lines"></i> File
+                        </button>
+                    </div>
+                    <button class="action-btn attach-btn" id="attachBtn" title="Attach Image or Document">
+                        <i class="fa-solid fa-paperclip"></i>
+                    </button>
+                    <textarea id="messageInput" placeholder="What's on your mind today?" autocomplete="off"
+                        rows="1"></textarea>
+                    <button class="action-btn record-btn" id="recordBtn" title="Record Voice Note">
+                        <i class="fa-solid fa-microphone"></i>
+                    </button>
+                    <button class="action-btn send-btn" id="sendBtn" title="Send Message">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
+                <div class="recording-indicator" id="recordingIndicator">
+                    <div class="pulse-ring"></div>
+                    <span id="recordingText">Recording... Click to stop</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Global Analytics Modal -->
+    <div class="global-dashboard-modal" id="globalDashboardModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <h2><i class="fa-solid fa-globe"></i> Global Analytics Dashboard</h2>
+                    <button id="generateCheckinBtn" class="action-btn"
+                        style="width: auto; padding: 0 15px; font-size: 0.9rem; background: rgba(107, 70, 193, 0.2); border: 1px solid #6b46c1; color: #a78bfa; border-radius: 8px; margin-left: 10px;"
+                        title="Generate AI Reflection"><i class="fa-solid fa-sparkles"></i> AI Check-in</button>
+                    <button id="exportPdfBtn" class="action-btn"
+                        style="width: auto; padding: 0 15px; font-size: 0.9rem; background: rgba(79, 209, 197, 0.2); border: 1px solid #4fd1c5; color: #4fd1c5; border-radius: 8px;"
+                        title="Export Therapy Report as PDF"><i class="fa-solid fa-file-pdf"></i> Export PDF</button>
+                </div>
+                <button class="close-modal-btn" id="closeGlobalDashboardBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="subtitle">Your Long-Term Emotional Journey</p>
+                <!-- Global Metrics Snapshot Cards -->
+                <div class="global-snapshot" id="globalSnapshot">
+                    <div class="snapshot-card">
+                        <div class="snap-title">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Core Themes Keywords -->
+                <div id="coreThemesContainer" class="themes-container" style="display: none; margin-bottom: 25px;">
+                    <h3
+                        style="color: #94a3b8; margin-top: 0; margin-bottom: 12px; font-size: 1rem; text-transform: uppercase; letter-spacing: 1px;">
+                        <i class="fa-solid fa-tags"></i> Core Emotional Themes
+                    </h3>
+                    <div id="coreThemesList" style="display: flex; flex-wrap: wrap; gap: 10px;"></div>
+                </div>
+
+                <!-- AI Check-in Container -->
+                <div id="aiCheckinContainer" class="ai-checkin-container"
+                    style="display: none; background: rgba(107, 70, 193, 0.1); border: 1px solid rgba(107, 70, 193, 0.3); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+                    <h3 style="color: #a78bfa; margin-top: 0; margin-bottom: 10px; font-size: 1.1rem;"><i
+                            class="fa-solid fa-sparkles"></i> Weekly AI Check-in</h3>
+                    <div id="aiCheckinText" style="color: #e2e8f0; font-size: 0.95rem; line-height: 1.5;"></div>
+                </div>
+
+                <div class="chart-container large-chart">
+                    <canvas id="globalMoodChart"></canvas>
+                </div>
+                <div class="global-metrics" id="globalMetrics"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden Clinical Report Print Template -->
+    <div id="clinicalReportPrintTemplate"
+        style="display: none; padding: 40px; background: white; color: black; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; width: 800px; box-sizing: border-box;">
+        <div
+            style="border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end;">
+            <div>
+                <h1 style="margin: 0; font-size: 28px; color: #1a202c; letter-spacing: 1px;">TRISOUL SYSTEM</h1>
+                <p
+                    style="margin: 5px 0 0 0; font-size: 14px; color: #718096; font-weight: bold; text-transform: uppercase;">
+                    Confidential Clinical Analysis Report</p>
+            </div>
+            <div style="text-align: right;">
+                <p style="margin: 0; font-size: 14px; color: #4a5568;">Generated: <span id="printReportDate">--</span>
+                </p>
+                <p style="margin: 5px 0 0 0; font-size: 14px; color: #4a5568;">Patient ID: <span
+                        style="font-family: monospace;">UUID-SECURE</span></p>
+            </div>
+        </div>
+        <div id="printReportContent" style="font-size: 15px; line-height: 1.6; color: #2d3748;">
+            <!-- LLM Markdown Injected Here -->
+        </div>
+        <div
+            style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center; color: #a0aec0; font-size: 12px;">
+            <p>This document contains dynamically extracted AI analysis and should be reviewed by a licensed
+                professional.<br>Generated by the Trisoul Emotional Tracking System.</p>
+        </div>
+    </div>
+
+    <!-- Auth Modal -->
+    <div class="auth-modal" id="authModal">
+        <div class="auth-box">
+            <button id="authBackBtn" class="auth-back-btn" title="Go Back">
+                <i class="fa-solid fa-arrow-left"></i>
+            </button>
+            <div class="auth-header">
+                <h2>Welcome to Trisoul</h2>
+                <p>Please log in to continue your journey.</p>
+            </div>
+            <form id="authForm">
+                <!-- Signup-exclusive fields (hidden by default initially, since Log In is default) -->
+                <div id="signupFields" style="display: none; transition: opacity 0.3s; width: 100%;">
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <input type="text" id="authFirstName" class="auth-input" placeholder="First Name"
+                            style="margin-bottom: 0;">
+                        <input type="text" id="authLastName" class="auth-input" placeholder="Last Name"
+                            style="margin-bottom: 0;">
+                    </div>
+                    <label
+                        style="display: block; text-align: left; margin-bottom: 5px; color: var(--text-muted); font-size: 0.9rem;">Date
+                        of Birth</label>
+                    <input type="date" id="authDob" class="auth-input" style="color: #64748b;">
+                </div>
+
+                <input type="email" id="authEmail" class="auth-input" placeholder="Email Address" required
+                    autocomplete="username">
+                <input type="password" id="authPassword" class="auth-input" placeholder="Password" required
+                    autocomplete="current-password">
+
+                <!-- Confirm Password Field -->
+                <div id="signupConfirmPasswordField" style="display: none; width: 100%;">
+                    <input type="password" id="authConfirmPassword" class="auth-input" placeholder="Confirm Password">
+                </div>
+
+                <div id="authError" class="auth-error"></div>
+                <button type="submit" id="authSubmitBtn" class="auth-btn">Log In</button>
+            </form>
+            <p class="auth-toggle" id="authToggleText">Need an account? <span>Sign Up</span></p>
+        </div>
+    </div>
+
+    <!-- Chart.js and Plugins -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
+    <!-- PDF Export Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- Marked.js for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- Custom JS -->
+    <script src="script.js?v=10"></script>
+    </script>
+    <!-- Firebase Auth JS -->
+    <script type="module" src="auth.js?v=4"></script>
+</body>
+
+</html>

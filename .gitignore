@@ -1,0 +1,13 @@
+.venv
+.env
+__pycache__/
+*.pyc
+.pytest_cache
+*.db
+chroma_db/
+*.log
+*.pid
+server_log.txt
+
+# Security
+*firebase_credentials.json*

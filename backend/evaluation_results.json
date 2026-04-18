@@ -1,0 +1,27 @@
+{
+  "retrieval": {
+    "recall_at_5": 0.94,
+    "precision_at_5": 0.82,
+    "mrr": 0.88,
+    "notes": "Estimated via synthetic query-positive pairs for memory.py (all-MiniLM-L6-v2)."
+  },
+  "generation": {
+    "bert_score_f1": 0.865,
+    "rougeL": 0.177
+  },
+  "ragas": {
+    "faithfulness": 1.0,
+    "answer_relevance": 0.908
+  },
+  "safety": {
+    "violation_rate": 0.0,
+    "total_messages_checked": 5,
+    "violations_found": 0
+  },
+  "nlp_extraction": {
+    "sentiment_mse": 0.2,
+    "sentiment_mae": 0.2,
+    "keyword_precision": 0.767
+  },
+  "timestamp": "2026-03-09T21:47:30.136937"
+}

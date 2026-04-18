@@ -1,0 +1,29 @@
+[project]
+name = "safespace-ai-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "chromadb>=1.5.1",
+    "diagrams>=0.25.1",
+    "fastapi>=0.116.1",
+    "firebase-admin>=7.4.0",
+    "geopy>=2.4.1",
+    "googlemaps>=4.10.0",
+    "langchain>=0.3.27",
+    "langchain-groq>=0.3.8",
+    "langchain-openai>=0.3.28",
+    "langgraph>=0.6.0",
+    "ollama>=0.5.1",
+    "openai>=1.97.1",
+    "pandas>=2.3.1",
+    "pydantic>=2.11.7",
+    "python-dotenv>=1.2.1",
+    "python-multipart>=0.0.20",
+    "requests>=2.32.4",
+    "sentence-transformers>=5.2.3",
+    "sqlalchemy>=2.0.41",
+    "twilio>=9.7.0",
+    "uvicorn>=0.35.0",
+]
