@@ -624,7 +624,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         async function fetchSessionMoodHistory(sessionId) {
             try {
-                const response = await fetch(`${BACKEND_URL}/session_mood/${sessionId}?t=${Date.now()}`);
+                const response = await fetch(`${BACKEND_URL}/users/${USER_ID}/sessions/${sessionId}/mood?t=${Date.now()}`);
                 if (!response.ok) return;
                 const data = await response.json();
 
@@ -964,7 +964,7 @@ document.addEventListener('DOMContentLoaded', () => {
         async function loadSessionMessages(sessionId) {
             try {
                 currentSessionId = sessionId;
-                const response = await fetch(`${BACKEND_URL}/session/${sessionId}?t=${Date.now()}`);
+                const response = await fetch(`${BACKEND_URL}/users/${USER_ID}/sessions/${sessionId}/messages?t=${Date.now()}`);
                 if (!response.ok) return;
                 const messages = await response.json();
 

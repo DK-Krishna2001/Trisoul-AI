@@ -12,11 +12,11 @@ from memory import get_relevant_history, save_interaction
 from firebase_db import (
     save_mood, get_mood_history, get_session_mood_history, save_chat_message, 
     get_user_sessions, get_session_messages, update_aggregations_cascade, 
-    get_session_title, update_session_title
+    get_session_title, update_session_title, get_benchmark_user_chats
 )
-from fastapi import FastAPI, Form, BackgroundTasks, UploadFile, File
+from fastapi import FastAPI, Form, BackgroundTasks, UploadFile, File, HTTPException
 import re
-from config import GROQ_API_KEY, OPENAI_API_KEY
+from config import GROQ_API_KEY, OPENAI_API_KEY, TESTBENCH_PASSWORD
 from langchain_groq import ChatGroq
 import tempfile
 from openai import OpenAI
@@ -93,11 +93,11 @@ def evaluate_and_save_mood(user_id: str, session_id: str, user_message_id: int, 
 
 # Background task to generate a neutral title for the session
 def generate_and_save_title(user_id: str, session_id: str):
-    existing_title = get_session_title(session_id)
+    existing_title = get_session_title(session_id, user_id=user_id)
     if existing_title:
         return  # Already has a title
         
-    messages = get_session_messages(session_id)
+    messages = get_session_messages(session_id, user_id=user_id)
     if not messages: return
     
     # Take up to 3 user messages for context to generate title
@@ -126,7 +126,7 @@ def generate_and_save_title(user_id: str, session_id: str):
     try:
         result = evaluator_llm.invoke(prompt)
         title = result.content.strip().strip('"').strip("'")
-        update_session_title(session_id, title)
+        update_session_title(session_id, title, user_id=user_id)
     except Exception as e:
         print(f"Error generating title: {e}")
 
@@ -140,13 +140,59 @@ class Query(BaseModel):
     attachment_name: str = None  # Original filename
 
 
+class TestbenchLogin(BaseModel):
+    user_id: str
+    password: str
+
+
+class TherapistBenchmarkAccess(BaseModel):
+    password: str
+    user_id_prefix: str = "bench_"
+    include_empty: bool = False
+
 
 from fastapi.responses import StreamingResponse
 import json
 
+@app.post("/testbench/login")
+def testbench_login(login: TestbenchLogin):
+    if login.password != TESTBENCH_PASSWORD:
+        raise HTTPException(status_code=401, detail="Invalid benchmark password")
+
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", login.user_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Benchmark user_id may only contain letters, numbers, underscore, dash, dot, or colon.",
+        )
+
+    return {"user_id": login.user_id, "mode": "testbench"}
+
+@app.post("/testbench/therapist/chats")
+def get_testbench_chats_for_therapist(access: TherapistBenchmarkAccess):
+    if access.password != TESTBENCH_PASSWORD:
+        raise HTTPException(status_code=401, detail="Invalid benchmark password")
+
+    if access.user_id_prefix and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", access.user_id_prefix):
+        raise HTTPException(
+            status_code=400,
+            detail="user_id_prefix may only contain letters, numbers, underscore, dash, dot, or colon.",
+        )
+
+    patients = get_benchmark_user_chats(
+        user_id_prefix=access.user_id_prefix,
+        include_empty=access.include_empty,
+    )
+
+    return {
+        "mode": "testbench_therapist_read",
+        "user_id_prefix": access.user_id_prefix,
+        "patient_count": len(patients),
+        "patients": patients,
+    }
+
 @app.post("/ask")
 def ask(query: Query, background_tasks: BackgroundTasks):
-    from ai_agent import graph_text, graph_vision
+    from ai_agent import graph
     
     # Handle Attachments
     attachment_context = ""
@@ -200,10 +246,7 @@ def ask(query: Query, background_tasks: BackgroundTasks):
     memory_context = get_relevant_history(user_id=query.user_id, session_id=query.session_id, current_query=combined_message)
     inputs = get_agent_inputs(user_message=combined_message, memory_context=memory_context, image_url=image_url)
     
-    if image_url:
-        stream = graph_vision.stream(inputs, stream_mode="updates")
-    else:
-        stream = graph_text.stream(inputs, stream_mode="updates")
+    stream = graph.stream(inputs, stream_mode="updates")
         
     tool_called_name, final_response = parse_response(stream)
     
@@ -218,9 +261,24 @@ def ask(query: Query, background_tasks: BackgroundTasks):
          background_tasks.add_task(evaluate_and_save_mood, query.user_id, query.session_id, user_message_id, query.message, final_response)
          background_tasks.add_task(generate_and_save_title, query.user_id, query.session_id)
          
-         return {"response": final_response, "tool_called": tool_called_name}
+         return {
+             "response": final_response,
+             "tool_called": tool_called_name,
+             "user_id": query.user_id,
+             "session_id": query.session_id,
+         }
     else:
-         return {"response": "I'm sorry, I couldn't generate a response.", "tool_called": "None"}
+         return {
+             "response": "I'm sorry, I couldn't generate a response.",
+             "tool_called": "None",
+             "user_id": query.user_id,
+             "session_id": query.session_id,
+         }
+
+@app.post("/testbench/ask")
+def testbench_ask(query: Query, background_tasks: BackgroundTasks):
+    """Unauthenticated benchmark endpoint with the same behavior as /ask."""
+    return ask(query=query, background_tasks=background_tasks)
 
 @app.get("/mood_history/{user_id}")
 def get_mood(user_id: str):
@@ -244,6 +302,11 @@ def get_mood(user_id: str):
 @app.get("/session_mood/{session_id}")
 def get_session_mood(session_id: str):
     history = get_session_mood_history(session_id=session_id)
+    return [{"timestamp": log.timestamp, "score": log.mood_score, "summary": log.interaction_summary} for log in history]
+
+@app.get("/users/{user_id}/sessions/{session_id}/mood")
+def get_user_session_mood(user_id: str, session_id: str):
+    history = get_session_mood_history(session_id=session_id, user_id=user_id)
     return [{"timestamp": log.timestamp, "score": log.mood_score, "summary": log.interaction_summary} for log in history]
 
 @app.get("/sessions/{user_id}")
@@ -361,6 +424,11 @@ def get_session_route(session_id: str):
     messages = get_session_messages(session_id)
     return [{"sender": m.sender, "text": m.text, "timestamp": m.timestamp} for m in messages]
 
+@app.get("/users/{user_id}/sessions/{session_id}/messages")
+def get_user_session_route(user_id: str, session_id: str):
+    messages = get_session_messages(session_id, user_id=user_id)
+    return [{"sender": m.sender, "text": m.text, "timestamp": m.timestamp} for m in messages]
+
 @app.get("/generate_clinical_report/{user_id}")
 def generate_clinical_report(user_id: str):
     metrics = get_global_metrics(user_id)
@@ -430,10 +498,5 @@ async def whatsapp_ask(Body: str = Form(...)):
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
-
-
-
-
-
 
 

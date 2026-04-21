@@ -151,11 +151,14 @@ def get_user_sessions(user_id: str):
     finally:
         db.close()
 
-def get_session_messages(session_id: str):
+def get_session_messages(session_id: str, user_id: str = None):
     """Returns all messages for a specific session ordered chronologically."""
     db = SessionLocal()
     try:
-        messages = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp).all()
+        query = db.query(ChatMessage).filter(ChatMessage.session_id == session_id)
+        if user_id:
+            query = query.filter(ChatMessage.user_id == user_id)
+        messages = query.order_by(ChatMessage.timestamp).all()
         return messages
     finally:
         db.close()
@@ -224,10 +227,13 @@ def update_aggregations_cascade(user_id: str, session_id: str, message_id: int, 
     finally:
         db.close()
 
-def update_session_title(session_id: str, title: str):
+def update_session_title(session_id: str, title: str, user_id: str = None):
     db = SessionLocal()
     try:
-        session_row = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+        query = db.query(ChatSession).filter(ChatSession.session_id == session_id)
+        if user_id:
+            query = query.filter(ChatSession.user_id == user_id)
+        session_row = query.first()
         if session_row:
             session_row.title = title
             db.commit()

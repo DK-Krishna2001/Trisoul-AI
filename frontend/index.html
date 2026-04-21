@@ -12,7 +12,7 @@
     <!-- Font Awesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="style.css?v=10">
+    <link rel="stylesheet" href="style.css?v=11">
     <!-- Spline 3D Web Component -->
     <script type="module" src="https://unpkg.com/@splinetool/viewer@1.0.94/build/spline-viewer.js"></script>
 </head>
@@ -282,6 +282,14 @@
                 <div id="authError" class="auth-error"></div>
                 <button type="submit" id="authSubmitBtn" class="auth-btn">Log In</button>
             </form>
+            <div class="bench-login">
+                <div class="bench-divider"><span>Benchmark Access</span></div>
+                <input type="text" id="benchUserId" class="auth-input" placeholder="Bench User ID"
+                    autocomplete="off">
+                <input type="password" id="benchPassword" class="auth-input" placeholder="Shared Bench Password"
+                    autocomplete="current-password">
+                <button type="button" id="benchLoginBtn" class="auth-btn bench-auth-btn">Open Bench User</button>
+            </div>
             <p class="auth-toggle" id="authToggleText">Need an account? <span>Sign Up</span></p>
         </div>
     </div>
@@ -300,10 +308,9 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
     <!-- Custom JS -->
-    <script src="script.js?v=10"></script>
-    </script>
+    <script src="script.js?v=11"></script>
     <!-- Firebase Auth JS -->
-    <script type="module" src="auth.js?v=4"></script>
+    <script type="module" src="auth.js?v=5"></script>
 </body>
 
 </html>

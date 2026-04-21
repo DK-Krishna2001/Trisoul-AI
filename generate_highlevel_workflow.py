@@ -7,7 +7,7 @@ from diagrams.onprem.network import Internet
 from diagrams.firebase.base import Firebase
 from diagrams.programming.framework import Fastapi
 
-with Diagram("Trisoul Comprehensive End-to-End Workflow", show=False, filename="trisoul_comprehensive_architecture", outformat="png", direction="TB"):
+with Diagram("Trisoul Parallel StateGraph Architecture", show=False, filename="trisoul_parallel_architecture", outformat="png", direction="TB"):
     user = User("Patient / User")
     
     with Cluster("Client Interfaces"):
@@ -21,17 +21,21 @@ with Diagram("Trisoul Comprehensive End-to-End Workflow", show=False, filename="
         workers = Server("Background Evaluators")
         doc_parser = Server("Document Parser (PyMuPDF)")
 
-    with Cluster("Intelligence Engine"):
-        mem = Server("Memory & RAG Context")
-        agent = Server("LangGraph ReAct Agent")
+    with Cluster("Intelligence Engine (Parallel StateGraph)"):
+        mem = Server("Memory & ChromaDB RAG\n(all-MiniLM-L6-v2)")
         
-        with Cluster("Models"):
-            groq = Server("Groq (Primary LLM)")
-            openai = Server("OpenAI (Whisper/Vision)")
-            medgemma = Server("MedGemma (Clinical)")
+        router = Server("Fast Router Node\n(llama-3.1-8b-instant)")
+        
+        with Cluster("Fast Utility Bypass"):
+            emergency = Server("Emergency Protocol")
+            locator = Internet("Google Maps Locator")
+            twilio_api = Internet("Twilio Call API")
+        
+        with Cluster("Parallel Therapy Fan-out"):
+            clinical = Server("Clinical Therapy Insight\n(gpt-oss-120b & gpt-4o-mini)")
+            sentiment = Server("Sentiment Analysis\n(llama-3.1-8b-instant)")
             
-        with Cluster("Tools"):
-            maps = Internet("Google Maps API")
+        synthesis = Server("Synthesis Node\n(openai/gpt-oss-120b)")
 
     db = Firestore("Firestore Database")
 
@@ -50,17 +54,26 @@ with Diagram("Trisoul Comprehensive End-to-End Workflow", show=False, filename="
     gateway >> doc_parser >> mem
     gateway >> mem
     
-    # Orchestration
-    mem >> agent
+    # Router Step
+    mem >> router
     
-    # LLMs & Tools
-    agent >> Edge(color="green", label="Reasoning") >> groq
-    agent >> Edge(color="blue", label="Audio/Vision") >> openai
-    agent >> Edge(color="purple", label="Specialized") >> medgemma
-    agent >> Edge(color="orange", label="Search") >> maps
+    # Bypass Branch
+    router >> Edge(color="red", label="EMERGENCY") >> emergency >> twilio_api
+    router >> Edge(color="orange", label="LOCATOR") >> locator
+    
+    # Parallel Therapy Branch
+    router >> Edge(color="blue", label="THERAPY") >> clinical
+    router >> Edge(color="blue", label="THERAPY") >> sentiment
+    
+    # Synthesis
+    clinical >> synthesis
+    sentiment >> synthesis
     
     # Persistence & Background Tasks
-    agent >> Edge(label="AI Response") >> gateway
+    synthesis >> Edge(label="AI Response") >> gateway
+    emergency >> Edge(label="AI Response") >> gateway
+    locator >> Edge(label="AI Response") >> gateway
+    
     gateway >> Edge(style="dashed", label="Async Mood Scoring") >> workers
     workers >> db
     gateway >> Edge(label="Save Chats") >> db

@@ -1097,6 +1097,40 @@ input[type="text"]::placeholder {
     display: none;
 }
 
+.bench-login {
+    margin-top: 2px;
+    margin-bottom: 18px;
+}
+
+.bench-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 2px 0 16px;
+}
+
+.bench-divider::before,
+.bench-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.bench-auth-btn {
+    background: rgba(79, 209, 197, 0.18);
+    border: 1px solid rgba(79, 209, 197, 0.35);
+    color: #b2f5ea;
+}
+
+.bench-auth-btn:hover {
+    background: rgba(79, 209, 197, 0.28);
+}
+
 
 .global-dashboard-modal.active .modal-content {
     transform: translateY(0);

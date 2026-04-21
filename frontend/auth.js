@@ -1,6 +1,9 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 
+const BACKEND_URL = "http://localhost:8000";
+const BENCH_SESSION_KEY = "trisoul_bench_user_id";
+
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
     apiKey: "your_firebase_web_api_key",
@@ -24,6 +27,9 @@ const authToggleText = document.getElementById('authToggleText');
 const authSubmitBtn = document.getElementById('authSubmitBtn');
 const authError = document.getElementById('authError');
 const logoutBtn = document.getElementById('logoutBtn');
+const benchUserId = document.getElementById('benchUserId');
+const benchPassword = document.getElementById('benchPassword');
+const benchLoginBtn = document.getElementById('benchLoginBtn');
 
 // New Auth DOM Elements
 const authHeaderTitle = document.querySelector('.auth-header h2');
@@ -36,6 +42,26 @@ const authDob = document.getElementById('authDob');
 const authConfirmPassword = document.getElementById('authConfirmPassword');
 
 let isSignup = false;
+
+function showAppForUser(userId) {
+    authModal.classList.remove('active');
+    const landingPage = document.getElementById('landingPage');
+    const mainAppContainer = document.getElementById('mainAppContainer');
+
+    if (landingPage && mainAppContainer) {
+        landingPage.classList.remove('active');
+        landingPage.style.display = 'none';
+        mainAppContainer.style.display = 'flex';
+    }
+
+    if (window.initializeAppWithUser) {
+        window.initializeAppWithUser(userId);
+    }
+}
+
+function clearBenchSession() {
+    localStorage.removeItem(BENCH_SESSION_KEY);
+}
 
 // Handle Auth Toggle (Login vs Signup)
 authToggleText.addEventListener('click', () => {
@@ -124,30 +150,62 @@ authForm.addEventListener('submit', async (e) => {
 // Handle Logout
 if (logoutBtn) {
     logoutBtn.addEventListener('click', () => {
-        signOut(auth);
+        clearBenchSession();
+        signOut(auth).finally(() => {
+            if (window.handleUserLogout) {
+                window.handleUserLogout();
+            }
+        });
+    });
+}
+
+if (benchLoginBtn) {
+    benchLoginBtn.addEventListener('click', async () => {
+        const userId = benchUserId.value.trim();
+        const password = benchPassword.value;
+
+        try {
+            benchLoginBtn.disabled = true;
+            benchLoginBtn.textContent = 'Opening...';
+            authError.style.display = 'none';
+
+            const response = await fetch(`${BACKEND_URL}/testbench/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId, password })
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.detail || "Benchmark login failed.");
+            }
+
+            await signOut(auth).catch(() => {});
+            localStorage.setItem(BENCH_SESSION_KEY, data.user_id);
+            showAppForUser(data.user_id);
+        } catch (error) {
+            authError.textContent = error.message;
+            authError.style.display = 'block';
+        } finally {
+            benchLoginBtn.disabled = false;
+            benchLoginBtn.textContent = 'Open Bench User';
+        }
     });
 }
 
 // Track Auth State and communicate with main script.js
 onAuthStateChanged(auth, (user) => {
     if (user) {
+        clearBenchSession();
         // User is signed in.
-        authModal.classList.remove('active');
-        const landingPage = document.getElementById('landingPage');
-        const mainAppContainer = document.getElementById('mainAppContainer');
-
-        // If user is logged in natively, immediately skip the landing page
-        if (landingPage) {
-            landingPage.classList.remove('active');
-            landingPage.style.display = 'none';
-            mainAppContainer.style.display = 'flex';
-        }
-
-        // Tell main script to initialize with user.uid
-        if (window.initializeAppWithUser) {
-            window.initializeAppWithUser(user.uid);
-        }
+        showAppForUser(user.uid);
     } else {
+        const benchUser = localStorage.getItem(BENCH_SESSION_KEY);
+        if (benchUser) {
+            showAppForUser(benchUser);
+            return;
+        }
+
         // User is signed out.
         // Don't show login modal immediately if landing page is visible
         const landingPage = document.getElementById('landingPage');

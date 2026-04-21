@@ -80,9 +80,12 @@ def get_mood_history(user_id: str):
     logs.sort(key=lambda x: x.timestamp if x.timestamp else datetime.min.replace(tzinfo=timezone.utc))
     return logs
 
-def get_session_mood_history(session_id: str):
-    """Retrieves all mood logs for a specific session, ordered by timestamp."""
-    logs_ref = db.collection("mood_logs").where("session_id", "==", session_id).stream()
+def get_session_mood_history(session_id: str, user_id: Optional[str] = None):
+    """Retrieves all mood logs for a specific session, optionally scoped to one user."""
+    logs_ref = db.collection("mood_logs").where("session_id", "==", session_id)
+    if user_id:
+        logs_ref = logs_ref.where("user_id", "==", user_id)
+    logs_ref = logs_ref.stream()
     
     class MockMoodLog:
         def __init__(self, doc):
@@ -176,39 +179,99 @@ def get_user_sessions(user_id: str):
         
     return result
 
-def get_session_messages(session_id: str):
+def get_session_messages(session_id: str, user_id: Optional[str] = None):
     """Returns all messages for a specific session ordered chronologically.
     NOTE: In Firestore schema, messages are subcollections of users -> sessions.
-    Therefore, we need to find WHICH user owns this session, OR we can use a collection group query.
-    For simplicity, if we don't have user_id, a Collection Group query on "messages" where session_id doesn't easily exist 
-    requires adding 'session_id' to the message doc. 
-    However, the current schema puts "messages" under sessions.
-    Let's use a Collection Group query since we don't know the user_id in this function signature.
+    Passing user_id is strongly preferred because different users may reuse the
+    same session_id in testbench runs.
     """
-    # Since we need to query messages across ANY user/session but filtered by session_document...
-    # Firestore doesn't easily let us filter a subcollection directly by its parent document ID without knowing the full path.
-    # We will query all users, find the session. (This is slightly inefficient for massive scale, but works for now).
-    # Alternatively, we can use a Collection Group on "messages" if we add session_id to each message document.
-    
-    # We will assume that since we need this, we will find the session across all users.
-    users = db.collection("users").stream()
-    messages_result = []
-    
     class MockChatMessage:
         def __init__(self, data):
             self.sender = data.get("sender")
             self.text = data.get("text")
+            self.mood_score = data.get("mood_score")
             self.timestamp = data.get("timestamp")
-    
+
+    def read_session_messages(session_ref):
+        messages = session_ref.collection("messages").order_by("timestamp").stream()
+        return [MockChatMessage(m.to_dict()) for m in messages]
+
+    if user_id:
+        session_ref = db.collection("users").document(user_id).collection("sessions").document(session_id)
+        if not session_ref.get().exists:
+            return []
+        return read_session_messages(session_ref)
+
+    messages_result = []
+    users = db.collection("users").stream()
     for u in users:
         session_ref = db.collection("users").document(u.id).collection("sessions").document(session_id)
         if session_ref.get().exists:
-            messages = session_ref.collection("messages").order_by("timestamp").stream()
-            for m in messages:
-                messages_result.append(MockChatMessage(m.to_dict()))
+            messages_result = read_session_messages(session_ref)
             break # Found the session, no need to check other users
             
     return messages_result
+
+
+def get_benchmark_user_chats(user_id_prefix: str = "bench_", include_empty: bool = False):
+    """Returns all benchmark users and their session/message history."""
+    patients = []
+
+    for user_doc in db.collection("users").stream():
+        user_id = user_doc.id
+        if user_id_prefix and not user_id.startswith(user_id_prefix):
+            continue
+
+        sessions = []
+        session_docs = (
+            db.collection("users")
+            .document(user_id)
+            .collection("sessions")
+            .order_by("started_at", direction=firestore.Query.ASCENDING)
+            .stream()
+        )
+
+        for session_doc in session_docs:
+            session_data = session_doc.to_dict()
+            messages = []
+            message_docs = (
+                db.collection("users")
+                .document(user_id)
+                .collection("sessions")
+                .document(session_doc.id)
+                .collection("messages")
+                .order_by("timestamp")
+                .stream()
+            )
+
+            for message_doc in message_docs:
+                message_data = message_doc.to_dict()
+                messages.append({
+                    "message_id": message_doc.id,
+                    "sender": message_data.get("sender"),
+                    "text": message_data.get("text"),
+                    "mood_score": message_data.get("mood_score"),
+                    "timestamp": message_data.get("timestamp"),
+                })
+
+            if include_empty or messages:
+                sessions.append({
+                    "session_id": session_doc.id,
+                    "started_at": session_data.get("started_at"),
+                    "title": session_data.get("title"),
+                    "aggregated_score": session_data.get("aggregated_score"),
+                    "messages": messages,
+                })
+
+        if include_empty or sessions:
+            patients.append({
+                "user_id": user_id,
+                "rolling_score": user_doc.to_dict().get("rolling_score"),
+                "session_count": len(sessions),
+                "sessions": sessions,
+            })
+
+    return patients
 
 
 def update_aggregations_cascade(user_id: str, session_id: str, message_id: str, mood_score: int, timezone_offset_hours: int = 0):
@@ -247,8 +310,14 @@ def update_aggregations_cascade(user_id: str, session_id: str, message_id: str, 
                 user_ref.update({"rolling_score": user_score})
 
 
-def update_session_title(session_id: str, title: str):
+def update_session_title(session_id: str, title: str, user_id: Optional[str] = None):
     """Updates the title of a specific session."""
+    if user_id:
+        session_ref = db.collection("users").document(user_id).collection("sessions").document(session_id)
+        if session_ref.get().exists:
+            session_ref.update({"title": title})
+        return
+
     users = db.collection("users").stream()
     for u in users:
         session_ref = db.collection("users").document(u.id).collection("sessions").document(session_id)
@@ -256,8 +325,15 @@ def update_session_title(session_id: str, title: str):
             session_ref.update({"title": title})
             break
 
-def get_session_title(session_id: str) -> Optional[str]:
-    """Retrieves the title of a specific session across all users."""
+def get_session_title(session_id: str, user_id: Optional[str] = None) -> Optional[str]:
+    """Retrieves the title of a specific session."""
+    if user_id:
+        session_ref = db.collection("users").document(user_id).collection("sessions").document(session_id)
+        doc = session_ref.get()
+        if doc.exists:
+            return doc.to_dict().get("title")
+        return None
+
     users = db.collection("users").stream()
     for u in users:
         session_ref = db.collection("users").document(u.id).collection("sessions").document(session_id)
