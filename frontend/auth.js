@@ -4,16 +4,11 @@ import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, on
 const BACKEND_URL = "http://localhost:8000";
 const BENCH_SESSION_KEY = "trisoul_bench_user_id";
 
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-    apiKey: "your_firebase_web_api_key",
-    authDomain: "your_project.firebaseapp.com",
-    projectId: "your_project_id",
-    storageBucket: "your_project.firebasestorage.app",
-    messagingSenderId: "your_sender_id",
-    appId: "your_firebase_app_id",
-    measurementId: "your_measurement_id"
-};
+const firebaseConfig = window.TRISOUL_FIREBASE_CONFIG;
+
+if (!firebaseConfig) {
+    throw new Error("Missing Firebase config. Create frontend/firebase-config.js from frontend/firebase-config.example.js.");
+}
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);

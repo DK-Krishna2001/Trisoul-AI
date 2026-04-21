@@ -9,6 +9,7 @@ chroma_db/
 *.pid
 server_log.txt
 evaluation_outputs/
+frontend/firebase-config.js
 
 # Security
 *firebase_credentials.json*
