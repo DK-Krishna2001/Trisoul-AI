@@ -305,8 +305,7 @@ spline-viewer.spline-background {
     font-size: 0.9rem;
 }
 
-.history-item:hover,
-.history-item.active {
+.history-item:hover {
     background: rgba(255, 255, 255, 0.08);
     border-color: var(--primary-light);
 }
@@ -547,6 +546,21 @@ spline-viewer.spline-background {
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
+.assistant-avatar {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--primary), var(--primary-light));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 1rem;
+    box-shadow: 0 6px 18px rgba(107, 70, 193, 0.35);
+    margin-top: 6px;
+}
+
 .user-msg {
     align-self: flex-end;
 }
@@ -558,12 +572,15 @@ spline-viewer.spline-background {
 
 .ai-msg {
     align-self: flex-start;
+    align-items: flex-start;
+    gap: 12px;
 }
 
 .ai-msg .message-inner {
     background: var(--bg-panel-hover);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-bottom-left-radius: 4px;
+    flex: 1 1 auto;
 }
 
 /* Typing Indicator */
@@ -572,6 +589,7 @@ spline-viewer.spline-background {
     gap: 5px;
     padding: 10px 15px;
     align-items: center;
+    min-height: 56px;
 }
 
 .dot {

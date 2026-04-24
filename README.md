@@ -37,25 +37,103 @@ Trisoul is not a licensed therapist or medical system. It does not diagnose, pre
 - Session mood and global analytics views
 - Optional emergency, therapist-location, voice, image, and document workflows
 
-## Architecture Improvement
+## Updated Architecture
 
-Trisoul was redesigned from a mostly sequential agent pipeline into a parallel LangGraph `StateGraph`.
+Trisoul now uses a parallel LangGraph `StateGraph` for therapy reasoning and a streamed `/ask` response path so the UI can render text progressively instead of waiting for one final JSON reply.
 
-Earlier sequential flow:
+### High-Level System Diagram
 
-```text
-user input -> router -> clinical analysis -> sentiment analysis -> synthesis
+```mermaid
+flowchart TB
+    user["User"] --> ui["Frontend Web UI"]
+    ui --> auth["Firebase Auth"]
+    ui --> ask["FastAPI /ask"]
+    ui --> transcribe["FastAPI /transcribe"]
+
+    ask --> saveUser["Save user message"]
+    ask --> memory["Memory retrieval<br/>ChromaDB + session history"]
+    ask --> router["Fast router node"]
+
+    router -->|EMERGENCY| emergency["Emergency flow"]
+    router -->|LOCATE_THERAPIST| locator["Therapist locator flow"]
+    router -->|THERAPY| clinical["Clinical branch"]
+    router -->|THERAPY| sentiment["Sentiment branch"]
+
+    clinical --> synthesis["Synthesis model"]
+    sentiment --> synthesis
+    synthesis --> guard["Response guard / rewrite layer"]
+
+    emergency --> response["Final response"]
+    locator --> response
+    guard --> response
+
+    response --> saveAI["Save AI response"]
+    saveAI --> firestore["Firestore chat + mood data"]
+    saveAI --> bg["Background evaluators"]
+    response --> ui
 ```
 
-Current parallel flow:
+### Streamed `/ask` Flow
 
-```text
-user input -> router -> clinical analysis + sentiment analysis in parallel -> synthesis
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant A as FastAPI /ask?stream=true
+    participant R as Router
+    participant C as Clinical Branch
+    participant S as Sentiment Branch
+    participant M as Synthesis Model
+    participant G as Response Guard
+    participant DB as Firestore
+
+    U->>F: Send message
+    F->>A: POST /ask?stream=true
+    A->>DB: Save user message
+    A->>R: Classify intent
+
+    alt Emergency
+        R-->>A: Emergency flow
+        A-->>F: meta + chunk + done
+    else Locate therapist
+        R-->>A: Therapist locator flow
+        A-->>F: meta + chunk + done
+    else Therapy
+        par Parallel analysis
+            A->>C: Clinical notes
+        and
+            A->>S: Sentiment analysis
+        end
+        A->>M: Build synthesis prompt
+        M-->>F: chunk events (token stream)
+        A->>G: Final draft check
+        G-->>F: final event if rewritten
+        A->>DB: Save AI message
+        A-->>F: done event
+    end
 ```
 
-The clinical and sentiment branches are independent, so running them concurrently reduces orchestration overhead and avoids waiting for one analysis stage to finish before starting the next.
+### Therapist Locator Decision Diagram
 
-In benchmark profiling, this redesign targets a reduction from roughly 10-15 seconds of sequential workflow latency to sub-second graph coordination overhead after warmup. End-to-end response latency still depends on external model provider response time, Firebase, ChromaDB, network conditions, and rate limits.
+```mermaid
+flowchart TD
+    loc["Locator intent"] --> prior{"Prior clinic list in session?"}
+    prior -->|No| search["Run location search and return best-rated clinics"]
+    prior -->|Yes| followup{"User follow-up type"}
+
+    followup -->|Pick best / choose one| pick["Return one best clinic"]
+    followup -->|Compare / better one| compare["Compare top two and recommend one"]
+    followup -->|Book appointment| booking["Explain boundary + booking steps"]
+    followup -->|What should I ask| questions["Give call script / intake questions"]
+    followup -->|Fresh clinic request| search
+```
+
+The main latency improvement now comes from two places:
+
+- `clinical` and `sentiment` run in parallel instead of sequentially
+- the frontend receives streamed text chunks while synthesis is still generating
+
+That means total model time still matters, but perceived latency is much lower because the user sees the answer begin almost immediately.
 
 ## Project Structure
 

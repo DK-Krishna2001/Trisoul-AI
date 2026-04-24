@@ -1,84 +1,90 @@
-from diagrams import Diagram, Cluster, Edge
+from diagrams import Cluster, Diagram, Edge
 
-from diagrams.onprem.client import User, Client
-from diagrams.onprem.compute import Server
-from diagrams.gcp.database import Firestore
-from diagrams.onprem.network import Internet
 from diagrams.firebase.base import Firebase
+from diagrams.gcp.database import Firestore
+from diagrams.onprem.client import Client, User
+from diagrams.onprem.compute import Server
+from diagrams.onprem.network import Internet
 from diagrams.programming.framework import Fastapi
 
-with Diagram("Trisoul Parallel StateGraph Architecture", show=False, filename="trisoul_parallel_architecture", outformat="png", direction="TB"):
+
+with Diagram(
+    "Trisoul Parallel Streaming Architecture",
+    show=False,
+    filename="trisoul_parallel_architecture",
+    outformat="png",
+    direction="TB",
+):
     user = User("Patient / User")
-    
+
     with Cluster("Client Interfaces"):
-        ui = Client("Web UI (Vanilla JS)")
+        ui = Client("Web UI\n(streaming chat)")
         speech = Client("Web Speech API")
         whatsapp = Client("WhatsApp (Twilio)")
         auth = Firebase("Firebase Auth")
 
-    with Cluster("Core Backend Layer"):
-        gateway = Fastapi("FastAPI Router Gateway")
+    with Cluster("FastAPI Backend"):
+        gateway = Fastapi("FastAPI /ask\n(JSON + stream)")
+        save_user = Server("Save User Message")
         workers = Server("Background Evaluators")
-        doc_parser = Server("Document Parser (PyMuPDF)")
+        doc_parser = Server("Attachment Parser\n(PyMuPDF / image handoff)")
 
-    with Cluster("Intelligence Engine (Parallel StateGraph)"):
-        mem = Server("Memory & ChromaDB RAG\n(all-MiniLM-L6-v2)")
-        
-        router = Server("Fast Router Node\n(llama-3.1-8b-instant)")
-        
-        with Cluster("Fast Utility Bypass"):
-            emergency = Server("Emergency Protocol")
-            locator = Internet("Google Maps Locator")
+    with Cluster("Context Layer"):
+        memory = Server("Memory Retrieval\nChromaDB + session history")
+        firestore = Firestore("Firestore")
+
+    with Cluster("LangGraph Decision Engine"):
+        router = Server("Fast Router\n(llama-3.1-8b-instant)")
+
+        with Cluster("Fast Utility Paths"):
+            emergency = Server("Emergency Flow")
+            locator = Internet("Therapist Locator\n(Google Maps)")
             twilio_api = Internet("Twilio Call API")
-        
-        with Cluster("Parallel Therapy Fan-out"):
-            clinical = Server("Clinical Therapy Insight\n(gpt-oss-120b & gpt-4o-mini)")
-            sentiment = Server("Sentiment Analysis\n(llama-3.1-8b-instant)")
-            
-        synthesis = Server("Synthesis Node\n(openai/gpt-oss-120b)")
 
-    db = Firestore("Firestore Database")
+        with Cluster("Parallel Therapy Branch"):
+            clinical = Server("Clinical Notes")
+            sentiment = Server("Sentiment Analysis")
 
-    # Workflow Connections
+        synthesis = Server("Synthesis Model\n(gpt-oss-120b)")
+        guard = Server("Response Guard\n(rewrite / polish)")
+
+    # User and client layer
     user >> ui
     user >> speech
     user >> whatsapp
     ui >> auth
-    
-    # Ingestion
-    ui >> Edge(label="/ask (Text/Files)") >> gateway
+
+    # Input paths
+    ui >> Edge(label="/ask?stream=true") >> gateway
     speech >> Edge(label="/transcribe") >> gateway
-    whatsapp >> Edge(label="Twilio Webhook") >> gateway
-    
-    # Backend processing
-    gateway >> doc_parser >> mem
-    gateway >> mem
-    
-    # Router Step
-    mem >> router
-    
-    # Bypass Branch
+    whatsapp >> Edge(label="Webhook") >> gateway
+
+    # Preparation and context
+    gateway >> save_user >> firestore
+    gateway >> doc_parser >> memory
+    gateway >> memory
+    firestore >> memory
+    memory >> router
+
+    # Decision branches
     router >> Edge(color="red", label="EMERGENCY") >> emergency >> twilio_api
-    router >> Edge(color="orange", label="LOCATOR") >> locator
-    
-    # Parallel Therapy Branch
+    router >> Edge(color="darkorange", label="LOCATE_THERAPIST") >> locator
     router >> Edge(color="blue", label="THERAPY") >> clinical
     router >> Edge(color="blue", label="THERAPY") >> sentiment
-    
-    # Synthesis
+
+    # Parallel converge
     clinical >> synthesis
     sentiment >> synthesis
-    
-    # Persistence & Background Tasks
-    synthesis >> Edge(label="AI Response") >> gateway
-    emergency >> Edge(label="AI Response") >> gateway
-    locator >> Edge(label="AI Response") >> gateway
-    
-    gateway >> Edge(style="dashed", label="Async Mood Scoring") >> workers
-    workers >> db
-    gateway >> Edge(label="Save Chats") >> db
-    mem >> db
-    
-    # Returning to user
-    gateway >> ui
+    synthesis >> Edge(color="purple", label="token stream") >> gateway
+    synthesis >> guard
+    guard >> Edge(color="purple", label="final corrected text") >> gateway
+
+    # Output and persistence
+    emergency >> Edge(label="final response") >> gateway
+    locator >> Edge(label="final response") >> gateway
+    gateway >> Edge(style="dashed", label="save AI response") >> firestore
+    gateway >> Edge(style="dashed", label="mood/title jobs") >> workers >> firestore
+
+    # Return paths
+    gateway >> Edge(color="purple", label="NDJSON chunks") >> ui
     gateway >> whatsapp

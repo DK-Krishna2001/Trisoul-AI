@@ -391,29 +391,68 @@ document.addEventListener('DOMContentLoaded', () => {
             const typingId = appendTypingIndicator();
 
             try {
-                const response = await fetch(`${BACKEND_URL}/ask`, {
+                const response = await fetch(`${BACKEND_URL}/ask?stream=true`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
 
-                const data = await response.json();
+                if (!response.ok || !response.body) {
+                    throw new Error(`Streaming request failed with status ${response.status}`);
+                }
+
                 removeElement(typingId);
+                const aiMessageId = createStreamingMessage('ai-msg');
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
 
-                let aiText = data.response || "Something went wrong.";
-                let toolHtml = "";
+                let buffer = "";
+                let streamedText = "";
+                let finalText = "";
+                let toolCalled = "None";
 
-                // Handle tool annotations from JSON payload
-                if (data.tool_called && data.tool_called !== "None") {
-                    toolHtml = `<span class="tool-badge"><i class="fa-solid fa-wrench"></i> Utilized: ${data.tool_called}</span>`;
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || "";
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        const event = JSON.parse(line);
+
+                        if (event.type === "meta") {
+                            toolCalled = event.tool_called || "None";
+                        } else if (event.type === "chunk") {
+                            streamedText += event.content || "";
+                            const toolHtml = toolCalled && toolCalled !== "None"
+                                ? `<span class="tool-badge"><i class="fa-solid fa-wrench"></i> Utilized: ${toolCalled}</span>`
+                                : "";
+                            updateMessageContent(aiMessageId, streamedText, toolHtml);
+                        } else if (event.type === "final") {
+                            finalText = event.content || streamedText;
+                            toolCalled = event.tool_called || toolCalled;
+                            const toolHtml = toolCalled && toolCalled !== "None"
+                                ? `<span class="tool-badge"><i class="fa-solid fa-wrench"></i> Utilized: ${toolCalled}</span>`
+                                : "";
+                            updateMessageContent(aiMessageId, finalText, toolHtml);
+                        } else if (event.type === "done") {
+                            finalText = event.content || finalText || streamedText || "Something went wrong.";
+                            toolCalled = event.tool_called || toolCalled;
+                            if (finalText.includes("WITH TOOL:")) {
+                                finalText = finalText.split("WITH TOOL:")[0].trim();
+                            }
+                            const toolHtml = toolCalled && toolCalled !== "None"
+                                ? `<span class="tool-badge"><i class="fa-solid fa-wrench"></i> Utilized: ${toolCalled}</span>`
+                                : "";
+                            updateMessageContent(aiMessageId, finalText, toolHtml);
+                        } else if (event.type === "error") {
+                            updateMessageContent(aiMessageId, event.content || "Something went wrong.");
+                        }
+                    }
                 }
-
-                // Strip out any accidental "WITH TOOL:" text if the LLM hallucinated it
-                if (aiText.includes("WITH TOOL:")) {
-                    aiText = aiText.split("WITH TOOL:")[0].trim();
-                }
-
-                appendMessage(aiText, 'ai-msg', toolHtml);
 
                 // Refresh mood dashboard and history list
                 setTimeout(() => fetchSessionMoodHistory(currentSessionId), 2000);
@@ -430,6 +469,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // --- DOM Helpers ---
+        function buildAssistantMessageHtml(innerHtml) {
+            return `
+                <div class="assistant-avatar" aria-hidden="true">
+                    <i class="fa-solid fa-brain"></i>
+                </div>
+                <div class="message-inner markdown-body">${innerHtml}</div>
+            `;
+        }
+
         function appendMessage(text, className, extraHtml = "") {
             const div = document.createElement('div');
             div.className = `message ${className}`;
@@ -444,8 +492,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 formattedText = text.replace(/\n/g, '<br>');
             }
 
-            div.innerHTML = `<div class="message-inner markdown-body">${formattedText}${extraHtml}</div>`;
+            if (className === 'ai-msg') {
+                div.innerHTML = buildAssistantMessageHtml(`${formattedText}${extraHtml}`);
+            } else {
+                div.innerHTML = `<div class="message-inner markdown-body">${formattedText}${extraHtml}</div>`;
+            }
             chatWrapper.appendChild(div);
+            scrollToBottom();
+        }
+
+        function createStreamingMessage(className) {
+            const id = "stream-" + Date.now();
+            const div = document.createElement('div');
+            div.className = `message ${className}`;
+            div.id = id;
+            if (className === 'ai-msg') {
+                div.innerHTML = buildAssistantMessageHtml(`...`);
+            } else {
+                div.innerHTML = `<div class="message-inner markdown-body">...</div>`;
+            }
+            chatWrapper.appendChild(div);
+            scrollToBottom();
+            return id;
+        }
+
+        function updateMessageContent(id, text, extraHtml = "") {
+            const div = document.getElementById(id);
+            if (!div) return;
+
+            let formattedText = "";
+            try {
+                formattedText = marked.parse(text || "...", { breaks: true });
+            } catch {
+                formattedText = (text || "...").replace(/\n/g, '<br>');
+            }
+
+            if (div.classList.contains('ai-msg')) {
+                div.innerHTML = buildAssistantMessageHtml(`${formattedText}${extraHtml}`);
+            } else {
+                div.innerHTML = `<div class="message-inner markdown-body">${formattedText}${extraHtml}</div>`;
+            }
             scrollToBottom();
         }
 
@@ -454,7 +540,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const div = document.createElement('div');
             div.className = `message ai-msg`;
             div.id = id;
-            div.innerHTML = `<div class="message-inner typing-indicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>`;
+            div.innerHTML = `
+                <div class="assistant-avatar" aria-hidden="true">
+                    <i class="fa-solid fa-brain"></i>
+                </div>
+                <div class="message-inner typing-indicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            `;
             chatWrapper.appendChild(div);
             scrollToBottom();
             return id;
