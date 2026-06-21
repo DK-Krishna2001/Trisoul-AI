@@ -262,24 +262,70 @@ def locate_therapist_node(state: AgentState):
     if not location or len(location) > 30:
         location = prior_location or "New York"
     
+    import requests
+    
+    # Choose search query term based on user query content
+    lower_msg = user_msg.lower()
+    if "hospital" in lower_msg:
+        term = "hospitals"
+    elif "clinic" in lower_msg:
+        term = "clinics"
+    elif "doctor" in lower_msg:
+        term = "doctors"
+    else:
+        term = "psychotherapists"
+        
+    query_str = f"{term} in {location}"
+    
     try:
-        geocode_result = gmaps.geocode(location)
-        if geocode_result:
-            lat_lng = geocode_result[0]['geometry']['location']
-            lat, lng = lat_lng['lat'], lat_lng['lng']
-            places_result = gmaps.places_nearby(
-                location=(lat, lng),
-                radius=5000,
-                keyword="Psychotherapist"
-            )
-            output = [f"Here are some highly-rated professionals near {location}:"]
-            for place in places_result.get('results', [])[:5]:
-                name = place.get("name", "Unknown")
-                address = place.get("vicinity", "")
-                output.append(f"- {name} | {address}")
-            result = "\n".join(output)
+        # Try geocoding to get coordinates for location bias
+        lat, lng = None, None
+        try:
+            geocode_result = gmaps.geocode(location)
+            if geocode_result:
+                lat_lng = geocode_result[0]['geometry']['location']
+                lat, lng = lat_lng['lat'], lat_lng['lng']
+        except Exception as ge:
+            print(f"Geocoding warning: {ge}")
+
+        url = "https://places.googleapis.com/v1/places:searchText"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+            "X-Goog-FieldMask": "places.displayName,places.formattedAddress"
+        }
+        payload = {
+            "textQuery": query_str,
+            "maxResultCount": 5
+        }
+        if lat is not None and lng is not None:
+            payload["locationBias"] = {
+                "circle": {
+                    "center": {
+                        "latitude": lat,
+                        "longitude": lng
+                    },
+                    "radius": 5000.0
+                }
+            }
+        
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        if response.status_code == 200:
+            places_data = response.json()
+            places = places_data.get("places", [])
+            if places:
+                header_text = f"Here are some highly-rated {term} near {location}:"
+                output = [header_text]
+                for place in places:
+                    name = place.get("displayName", {}).get("text", "Unknown")
+                    address = place.get("formattedAddress", "")
+                    output.append(f"- {name} | {address}")
+                result = "\n".join(output)
+            else:
+                result = f"I couldn't find any {term} near '{location}' right now."
         else:
-            result = f"I couldn't find exact location data for '{location}' right now."
+            print(f"Places API (New) Error: {response.status_code} - {response.text}")
+            result = "I'm having trouble looking up the maps right now."
     except Exception as e:
         print(f"Location error: {e}")
         result = "I'm having trouble looking up the maps right now."
