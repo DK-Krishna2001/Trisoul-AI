@@ -1,7 +1,9 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 
-const BACKEND_URL = "http://localhost:8000";
+const BACKEND_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:8000"
+    : window.location.origin + "/api";
 const BENCH_SESSION_KEY = "trisoul_bench_user_id";
 
 const firebaseConfig = window.TRISOUL_FIREBASE_CONFIG;
