@@ -17,3 +17,4 @@ sentence-transformers
 sqlalchemy
 twilio
 uvicorn
+firebase-admin

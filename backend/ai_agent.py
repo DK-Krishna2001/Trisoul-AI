@@ -6,7 +6,6 @@ from typing import TypedDict, Annotated, Sequence, Any
 import operator
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langchain.agents import tool
 
 from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq

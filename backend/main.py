@@ -27,7 +27,7 @@ from firebase_db import (
     get_user_sessions, get_session_messages, update_aggregations_cascade, 
     get_session_title, update_session_title, get_benchmark_user_chats
 )
-from fastapi import FastAPI, Form, BackgroundTasks, UploadFile, File, HTTPException, Query as FastAPIQuery
+from fastapi import FastAPI, Form, BackgroundTasks, UploadFile, File, HTTPException, Query as FastAPIQuery, Depends, Header
 import re
 from config import GROQ_API_KEY, OPENAI_API_KEY, TESTBENCH_PASSWORD
 from langchain_groq import ChatGroq
@@ -46,6 +46,31 @@ app.add_middleware(
 )
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+def get_verified_user_id(authorization: str | None = Header(None)) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization Header")
+    
+    try:
+        parts = authorization.split()
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            raise HTTPException(status_code=401, detail="Invalid token scheme")
+        token = parts[1]
+        
+        # Support benchmark users
+        if token.startswith("benchmark_"):
+            bench_uid = token.replace("benchmark_", "")
+            # Ensure it is a valid benchmark user_id format
+            if re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", bench_uid):
+                return bench_uid
+            raise HTTPException(status_code=401, detail="Invalid benchmark user ID format")
+            
+        # Verify Firebase ID token
+        from firebase_admin import auth as firebase_auth
+        decoded_token = firebase_auth.verify_id_token(token)
+        return decoded_token["uid"]
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
 
 @app.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
@@ -405,7 +430,9 @@ def get_testbench_chats_for_therapist(access: TherapistBenchmarkAccess):
     }
 
 @app.post("/ask")
-def ask(query: Query, background_tasks: BackgroundTasks, stream: bool = FastAPIQuery(False)):
+def ask(query: Query, background_tasks: BackgroundTasks, stream: bool = FastAPIQuery(False), verified_user_id: str = Depends(get_verified_user_id)):
+    if query.user_id != verified_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: user_id mismatch")
     prepared = prepare_query_context(query)
 
     if stream:
@@ -438,12 +465,16 @@ def ask(query: Query, background_tasks: BackgroundTasks, stream: bool = FastAPIQ
     }
 
 @app.post("/testbench/ask")
-def testbench_ask(query: Query, background_tasks: BackgroundTasks):
-    """Unauthenticated benchmark endpoint with the same behavior as /ask."""
-    return ask(query=query, background_tasks=background_tasks)
+def testbench_ask(query: Query, background_tasks: BackgroundTasks, verified_user_id: str = Depends(get_verified_user_id)):
+    """Benchmark endpoint secured with token verification."""
+    if query.user_id != verified_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: user_id mismatch")
+    return ask(query=query, background_tasks=background_tasks, verified_user_id=verified_user_id)
 
 @app.get("/mood_history/{user_id}")
-def get_mood(user_id: str):
+def get_mood(user_id: str, verified_user_id: str = Depends(get_verified_user_id)):
+    if user_id != verified_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: user_id mismatch")
     try:
         # Use get_mood_history from firebase_db
         results = get_mood_history(user_id)
@@ -462,17 +493,21 @@ def get_mood(user_id: str):
         return []
 
 @app.get("/session_mood/{session_id}")
-def get_session_mood(session_id: str):
-    history = get_session_mood_history(session_id=session_id)
+def get_session_mood(session_id: str, verified_user_id: str = Depends(get_verified_user_id)):
+    history = get_session_mood_history(session_id=session_id, user_id=verified_user_id)
     return [{"timestamp": log.timestamp, "score": log.mood_score, "summary": log.interaction_summary} for log in history]
 
 @app.get("/users/{user_id}/sessions/{session_id}/mood")
-def get_user_session_mood(user_id: str, session_id: str):
+def get_user_session_mood(user_id: str, session_id: str, verified_user_id: str = Depends(get_verified_user_id)):
+    if user_id != verified_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: user_id mismatch")
     history = get_session_mood_history(session_id=session_id, user_id=user_id)
     return [{"timestamp": log.timestamp, "score": log.mood_score, "summary": log.interaction_summary} for log in history]
 
 @app.get("/sessions/{user_id}")
-def get_sessions_route(user_id: str):
+def get_sessions_route(user_id: str, verified_user_id: str = Depends(get_verified_user_id)):
+    if user_id != verified_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: user_id mismatch")
     sessions = get_user_sessions(user_id)
     result = []
     for s in sessions:
@@ -485,7 +520,9 @@ def get_sessions_route(user_id: str):
     return result
 
 @app.get("/global_metrics/{user_id}")
-def get_global_metrics(user_id: str):
+def get_global_metrics(user_id: str, verified_user_id: str = Depends(get_verified_user_id)):
+    if user_id != verified_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: user_id mismatch")
     try:
         # Get sessions from Firestore
         all_sessions = get_user_sessions(user_id)
@@ -501,13 +538,13 @@ def get_global_metrics(user_id: str):
         lifetime_average = round(sum(s.aggregated_score for s in sessions) / total_sessions, 1)
         
         # Calculate Trend
-        trend = "Stable \u2192"
+        trend = "Stable →"
         if total_sessions >= 3:
             recent_avg = sum(s.aggregated_score for s in sessions[-3:]) / 3
             if recent_avg - lifetime_average > 0.5:
-                trend = "Trending Up \u2197"
+                trend = "Trending Up ↗"
             elif lifetime_average - recent_avg > 0.5:
-                trend = "Trending Down \u2198"
+                trend = "Trending Down ↘"
                 
         # Calculate Extremes
         highest_s = max(sessions, key=lambda x: x.aggregated_score)
@@ -559,8 +596,10 @@ def get_global_metrics(user_id: str):
         return {"total_sessions": 0, "lifetime_average": 0, "trend": "Error", "highest_session": None, "lowest_session": None}
 
 @app.get("/generate_ai_checkin/{user_id}")
-def generate_ai_checkin(user_id: str):
-    metrics = get_global_metrics(user_id)
+def generate_ai_checkin(user_id: str, verified_user_id: str = Depends(get_verified_user_id)):
+    if user_id != verified_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: user_id mismatch")
+    metrics = get_global_metrics(user_id, verified_user_id=verified_user_id)
     if not metrics or metrics.get("total_sessions", 0) == 0:
         return {"reflection": "You haven't completed any therapy sessions yet! Whenever you're ready to start, I'll be here to track your progress and reflect on your journey together."}
 
@@ -582,18 +621,22 @@ Write 1-2 short, encouraging paragraphs. Acknowledge their highs and lows, comme
         return {"reflection": "I'm having a little trouble gathering your thoughts right now, but your progress is securely saved. Let's chat more to keep building your emotional journey!"}
 
 @app.get("/session/{session_id}")
-def get_session_route(session_id: str):
-    messages = get_session_messages(session_id)
+def get_session_route(session_id: str, verified_user_id: str = Depends(get_verified_user_id)):
+    messages = get_session_messages(session_id, user_id=verified_user_id)
     return [{"sender": m.sender, "text": m.text, "timestamp": m.timestamp} for m in messages]
 
 @app.get("/users/{user_id}/sessions/{session_id}/messages")
-def get_user_session_route(user_id: str, session_id: str):
+def get_user_session_route(user_id: str, session_id: str, verified_user_id: str = Depends(get_verified_user_id)):
+    if user_id != verified_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: user_id mismatch")
     messages = get_session_messages(session_id, user_id=user_id)
     return [{"sender": m.sender, "text": m.text, "timestamp": m.timestamp} for m in messages]
 
 @app.get("/generate_clinical_report/{user_id}")
-def generate_clinical_report(user_id: str):
-    metrics = get_global_metrics(user_id)
+def generate_clinical_report(user_id: str, verified_user_id: str = Depends(get_verified_user_id)):
+    if user_id != verified_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: user_id mismatch")
+    metrics = get_global_metrics(user_id, verified_user_id=verified_user_id)
     if not metrics or metrics.get("total_sessions", 0) == 0:
         return {"report": "Insufficient data to generate a clinical analysis report. Please complete at least one therapy session."}
 

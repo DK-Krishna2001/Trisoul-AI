@@ -221,3 +221,16 @@ onAuthStateChanged(auth, (user) => {
         }
     }
 });
+
+// Expose secure token retriever globally
+window.getAuthToken = async function() {
+    const user = auth.currentUser;
+    if (user) {
+        return await user.getIdToken();
+    }
+    const benchUser = localStorage.getItem(BENCH_SESSION_KEY);
+    if (benchUser) {
+        return `benchmark_${benchUser}`;
+    }
+    return null;
+};

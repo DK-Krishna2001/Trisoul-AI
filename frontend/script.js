@@ -1,6 +1,16 @@
 const BACKEND_URL = "http://localhost:8000";
 let USER_ID = null;
 
+// Secure API Fetch wrapper that appends JWT Authorization headers
+async function apiFetch(url, options = {}) {
+    const token = await window.getAuthToken?.();
+    options.headers = options.headers || {};
+    if (token) {
+        options.headers['Authorization'] = `Bearer ${token}`;
+    }
+    return fetch(url, options);
+}
+
 // Helper to convert backend naive UTC timestamps to local timezone dates
 function getLocalDate(utcDateStr) {
     if (!utcDateStr) return new Date();
@@ -391,7 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const typingId = appendTypingIndicator();
 
             try {
-                const response = await fetch(`${BACKEND_URL}/ask?stream=true`, {
+                const response = await apiFetch(`${BACKEND_URL}/ask?stream=true`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -626,7 +636,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- Mood Dashboard Logic ---
         async function fetchGlobalMetrics() {
             try {
-                const response = await fetch(`${BACKEND_URL}/global_metrics/${USER_ID}?t=${Date.now()}`);
+                const response = await apiFetch(`${BACKEND_URL}/global_metrics/${USER_ID}?t=${Date.now()}`);
                 if (!response.ok) return;
                 const metrics = await response.json();
 
@@ -715,7 +725,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         async function fetchSessionMoodHistory(sessionId) {
             try {
-                const response = await fetch(`${BACKEND_URL}/users/${USER_ID}/sessions/${sessionId}/mood?t=${Date.now()}`);
+                const response = await apiFetch(`${BACKEND_URL}/users/${USER_ID}/sessions/${sessionId}/mood?t=${Date.now()}`);
                 if (!response.ok) return;
                 const data = await response.json();
 
@@ -738,7 +748,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 await fetchGlobalMetrics(); // Populate the snapshot cards first
 
                 // Fetch the aggregated sessions instead of granular mood history
-                const response = await fetch(`${BACKEND_URL}/sessions/${USER_ID}?t=${Date.now()}`);
+                const response = await apiFetch(`${BACKEND_URL}/sessions/${USER_ID}?t=${Date.now()}`);
                 if (!response.ok) return;
                 const sessions = await response.json();
 
@@ -778,7 +788,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             try {
                 // 1. Fetch AI Clinical Analysis from Backend
-                const response = await fetch(`${BACKEND_URL}/generate_clinical_report/${USER_ID}`);
+                const response = await apiFetch(`${BACKEND_URL}/generate_clinical_report/${USER_ID}`);
                 if (!response.ok) throw new Error("Failed to fetch clinical report.");
                 const data = await response.json();
 
@@ -849,7 +859,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.disabled = true;
 
             try {
-                const response = await fetch(`${BACKEND_URL}/generate_ai_checkin/${USER_ID}`);
+                const response = await apiFetch(`${BACKEND_URL}/generate_ai_checkin/${USER_ID}`);
                 if (!response.ok) throw new Error("Network response was not ok");
 
                 const data = await response.json();
@@ -1009,7 +1019,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- Chat History Logic ---
         async function fetchChatHistory() {
             try {
-                const response = await fetch(`${BACKEND_URL}/sessions/${USER_ID}?t=${Date.now()}`);
+                const response = await apiFetch(`${BACKEND_URL}/sessions/${USER_ID}?t=${Date.now()}`);
                 if (!response.ok) return;
                 const sessions = await response.json();
 
@@ -1055,7 +1065,7 @@ document.addEventListener('DOMContentLoaded', () => {
         async function loadSessionMessages(sessionId) {
             try {
                 currentSessionId = sessionId;
-                const response = await fetch(`${BACKEND_URL}/users/${USER_ID}/sessions/${sessionId}/messages?t=${Date.now()}`);
+                const response = await apiFetch(`${BACKEND_URL}/users/${USER_ID}/sessions/${sessionId}/messages?t=${Date.now()}`);
                 if (!response.ok) return;
                 const messages = await response.json();
 
