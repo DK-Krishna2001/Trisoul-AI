@@ -27,7 +27,7 @@ from firebase_db import (
     get_user_sessions, get_session_messages, update_aggregations_cascade, 
     get_session_title, update_session_title, get_benchmark_user_chats
 )
-from fastapi import FastAPI, Form, BackgroundTasks, UploadFile, File, HTTPException, Query as FastAPIQuery, Depends, Header
+from fastapi import FastAPI, Form, BackgroundTasks, UploadFile, File, HTTPException, Query as FastAPIQuery, Depends, Header, Request
 import re
 from config import GROQ_API_KEY, OPENAI_API_KEY, TESTBENCH_PASSWORD
 from langchain_groq import ChatGroq
@@ -237,7 +237,7 @@ def build_recent_session_context(user_id: str, session_id: str, limit: int = 10)
     return "\n".join(formatted)
 
 
-def prepare_query_context(query: Query):
+def prepare_query_context(query: Query, client_ip: str = ""):
     """Shared request preparation for both JSON and streaming ask routes."""
     attachment_context = ""
     image_url = None
@@ -291,6 +291,7 @@ def prepare_query_context(query: Query):
         session_history_context=session_history_context,
         memory_context=memory_context,
         image_url=image_url,
+        client_ip=client_ip
     )
 
     return {
@@ -430,10 +431,17 @@ def get_testbench_chats_for_therapist(access: TherapistBenchmarkAccess):
     }
 
 @app.post("/ask")
-def ask(query: Query, background_tasks: BackgroundTasks, stream: bool = FastAPIQuery(False), verified_user_id: str = Depends(get_verified_user_id)):
+def ask(query: Query, request: Request, background_tasks: BackgroundTasks, stream: bool = FastAPIQuery(False), verified_user_id: str = Depends(get_verified_user_id)):
     if query.user_id != verified_user_id:
         raise HTTPException(status_code=403, detail="Forbidden: user_id mismatch")
-    prepared = prepare_query_context(query)
+    
+    client_ip = request.headers.get("x-forwarded-for") or request.headers.get("x-real-ip")
+    if client_ip:
+        client_ip = client_ip.split(",")[0].strip()
+    else:
+        client_ip = request.client.host if request.client else "127.0.0.1"
+
+    prepared = prepare_query_context(query, client_ip=client_ip)
 
     if stream:
         return StreamingResponse(
@@ -464,12 +472,13 @@ def ask(query: Query, background_tasks: BackgroundTasks, stream: bool = FastAPIQ
         "session_id": query.session_id,
     }
 
+
 @app.post("/testbench/ask")
-def testbench_ask(query: Query, background_tasks: BackgroundTasks, verified_user_id: str = Depends(get_verified_user_id)):
+def testbench_ask(query: Query, request: Request, background_tasks: BackgroundTasks, verified_user_id: str = Depends(get_verified_user_id)):
     """Benchmark endpoint secured with token verification."""
     if query.user_id != verified_user_id:
         raise HTTPException(status_code=403, detail="Forbidden: user_id mismatch")
-    return ask(query=query, background_tasks=background_tasks, verified_user_id=verified_user_id)
+    return ask(query=query, request=request, background_tasks=background_tasks, verified_user_id=verified_user_id)
 
 @app.get("/mood_history/{user_id}")
 def get_mood(user_id: str, verified_user_id: str = Depends(get_verified_user_id)):

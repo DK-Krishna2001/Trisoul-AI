@@ -37,6 +37,7 @@ class AgentState(TypedDict):
     final_response: str
     intent: str
     image_url: str
+    client_ip: str
 
 
 # ==========================================
@@ -192,11 +193,52 @@ def message_is_questions_followup(user_msg: str) -> bool:
     return any(marker in lower for marker in markers)
 
 
+def is_public_ip(ip: str) -> bool:
+    if not ip:
+        return False
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        if parts[0] == "127":
+            return False
+        if parts[0] == "10":
+            return False
+        if parts[0] == "172" and 16 <= int(parts[1]) <= 31:
+            return False
+        if parts[0] == "192" and parts[1] == "168":
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def get_ip_location(ip: str):
+    import requests
+    if not is_public_ip(ip):
+        return None
+    try:
+        response = requests.get(f"http://ip-api.com/json/{ip}", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("status") == "success":
+                return {
+                    "city": data.get("city"),
+                    "region": data.get("regionName"),
+                    "lat": data.get("lat"),
+                    "lng": data.get("lon")
+                }
+    except Exception as e:
+        print(f"IP Geolocation error for {ip}: {e}")
+    return None
+
+
 def locate_therapist_node(state: AgentState):
     """Directly queries Google Maps API for therapists."""
     user_msg = state.get("user_message", "")
     session_history_context = state.get("session_history_context", "")
     prior_location, prior_clinics = extract_previous_therapist_context(session_history_context)
+    client_ip = state.get("client_ip", "")
 
     if message_is_booking_followup(user_msg) and prior_clinics:
         choice = prior_clinics[0]
@@ -257,11 +299,39 @@ def locate_therapist_node(state: AgentState):
     # Fast geography extraction
     prompt = "Extract the city, state, or location from this message. Output ONLY the location name and nothing else."
     res = llm_fast.invoke([SystemMessage(content=prompt), HumanMessage(content=user_msg)])
-    location = res.content.strip()
+    extracted_location = res.content.strip()
     
-    if not location or len(location) > 30:
+    ip_loc = None
+    if client_ip:
+        ip_loc = get_ip_location(client_ip)
+
+    # Resolve location and coordinates
+    lat, lng = None, None
+    is_fallback = False
+    
+    if extracted_location and len(extracted_location) <= 30 and extracted_location.lower() not in ["nearby", "near me", "around me", "local"]:
+        location = extracted_location
+        try:
+            geocode_result = gmaps.geocode(location)
+            if geocode_result:
+                lat_lng = geocode_result[0]['geometry']['location']
+                lat, lng = lat_lng['lat'], lat_lng['lng']
+        except Exception as ge:
+            print(f"Geocoding warning: {ge}")
+    elif ip_loc and ip_loc.get("city"):
+        location = f"{ip_loc['city']}, {ip_loc['region']}"
+        lat, lng = ip_loc['lat'], ip_loc['lng']
+    else:
         location = prior_location or "New York"
-    
+        is_fallback = True
+        try:
+            geocode_result = gmaps.geocode(location)
+            if geocode_result:
+                lat_lng = geocode_result[0]['geometry']['location']
+                lat, lng = lat_lng['lat'], lat_lng['lng']
+        except Exception as ge:
+            print(f"Geocoding warning: {ge}")
+            
     import requests
     
     # Choose search query term based on user query content
@@ -278,16 +348,6 @@ def locate_therapist_node(state: AgentState):
     query_str = f"{term} in {location}"
     
     try:
-        # Try geocoding to get coordinates for location bias
-        lat, lng = None, None
-        try:
-            geocode_result = gmaps.geocode(location)
-            if geocode_result:
-                lat_lng = geocode_result[0]['geometry']['location']
-                lat, lng = lat_lng['lat'], lat_lng['lng']
-        except Exception as ge:
-            print(f"Geocoding warning: {ge}")
-
         url = "https://places.googleapis.com/v1/places:searchText"
         headers = {
             "Content-Type": "application/json",
@@ -305,7 +365,7 @@ def locate_therapist_node(state: AgentState):
                         "latitude": lat,
                         "longitude": lng
                     },
-                    "radius": 5000.0
+                    "radius": 8046.72  # 5 miles in meters
                 }
             }
         
@@ -321,6 +381,8 @@ def locate_therapist_node(state: AgentState):
                     address = place.get("formattedAddress", "")
                     output.append(f"- {name} | {address}")
                 result = "\n".join(output)
+                if is_fallback:
+                    result += f"\n\n(Note: Since I couldn't automatically detect your location, I searched near {location}. If you are somewhere else, please tell me your city or zip code and I'll lookup options there!)"
             else:
                 result = f"I couldn't find any {term} near '{location}' right now."
         else:
@@ -691,7 +753,7 @@ graph = graph_text # Fallback for old imports
 # ==========================================
 # 7. Helper Functions
 # ==========================================
-def get_agent_inputs(user_message: str, session_history_context: str = "", memory_context: str = "", image_url: str = None):
+def get_agent_inputs(user_message: str, session_history_context: str = "", memory_context: str = "", image_url: str = None, client_ip: str = ""):
     # Returns inputs matching AgentState strictly
     return {
         "user_message": user_message,
@@ -702,7 +764,8 @@ def get_agent_inputs(user_message: str, session_history_context: str = "", memor
         "tool_called": "None",
         "final_response": "",
         "intent": "",
-        "image_url": image_url
+        "image_url": image_url,
+        "client_ip": client_ip
     }
 
 
