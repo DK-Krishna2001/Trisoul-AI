@@ -223,6 +223,18 @@ Frontend URL:
 http://127.0.0.1:5500/
 ```
 
+## Production Deployment
+
+The project is deployed on a DigitalOcean droplet (`146.190.78.106`) and is fully accessible at:
+
+* **Production URL**: [https://trisoulai.app](https://trisoulai.app) (redirects from HTTP to HTTPS automatically)
+
+### Infrastructure & Server Setup
+* **Web Server**: **Nginx** serves the static frontend from `/var/www/Trisoul-AI/frontend` and reverse-proxies `/api/` requests to the local backend.
+* **Process Manager**: **systemd** manages the FastAPI backend (`trisoul.service`) to ensure 24/7 uptime and automatic restarts.
+* **SSL Certificates**: **Let's Encrypt** (via Certbot) manages the HTTPS credentials.
+
+
 ## Benchmark API
 
 ### Send Benchmark Chat Message
