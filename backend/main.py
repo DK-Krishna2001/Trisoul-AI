@@ -21,6 +21,7 @@ from ai_agent import (
     stream_synthesis_response,
     response_guard_node,
 )
+from guardrails import evaluate_input_guardrails, apply_output_guardrails
 from memory import get_relevant_history, save_interaction
 from firebase_db import (
     save_mood, get_mood_history, get_session_mood_history, save_chat_message, 
@@ -327,48 +328,58 @@ def iter_ndjson_stream(query: Query, prepared: dict):
     final_response = ""
 
     try:
+        input_guard = evaluate_input_guardrails(query.message)
         yield emit({"type": "meta", "tool_called": tool_called_name})
-        route = router_node(inputs)
-        intent = route.get("intent", "THERAPY")
-        state = {**inputs, **route}
-
-        if intent == "EMERGENCY":
-            emergency_update = {
-                "tool_called": "emergency_call_tool",
-                "final_response": "I hear how much pain you are in right now. I have triggered the emergency protocol. Please stay safe, help is on the way. You can also call the National Suicide Prevention Lifeline at 988 immediately."
-            }
-            tool_called_name = emergency_update["tool_called"]
-            final_response = emergency_update["final_response"]
+        if input_guard.route == "crisis_support":
+            tool_called_name = input_guard.tool_called
+            final_response = input_guard.safe_response
             yield emit({"type": "meta", "tool_called": tool_called_name})
             yield emit({"type": "chunk", "content": final_response})
-        elif intent == "LOCATE_THERAPIST":
-            locator_update = locate_therapist_node(state)
-            tool_called_name = locator_update.get("tool_called", "locate_therapist_tool")
-            final_response = locator_update.get("final_response", "")
-            yield emit({"type": "meta", "tool_called": tool_called_name})
-            if final_response:
-                yield emit({"type": "chunk", "content": final_response})
         else:
-            clinical_update = clinical_node(state)
-            sentiment_update = sentiment_node(state)
-            state.update(clinical_update)
-            state.update(sentiment_update)
+            route = router_node(inputs)
+            intent = route.get("intent", "THERAPY")
+            state = {**inputs, **route}
 
-            messages = build_synthesis_messages(state)
-            tool_called_name = "ask_mental_state_specialist"
-            yield emit({"type": "meta", "tool_called": tool_called_name})
+            if intent == "EMERGENCY":
+                tool_called_name = "guardrail_crisis_support"
+                final_response = input_guard.safe_response or (
+                    "I'm concerned that this may be an immediate safety issue. Please call 988 now if you're "
+                    "in the U.S. or call local emergency services right away if you might act on these thoughts."
+                )
+                yield emit({"type": "meta", "tool_called": tool_called_name})
+                yield emit({"type": "chunk", "content": final_response})
+            elif intent == "LOCATE_THERAPIST":
+                locator_update = locate_therapist_node(state)
+                tool_called_name = locator_update.get("tool_called", "locate_therapist_tool")
+                final_response = locator_update.get("final_response", "")
+                yield emit({"type": "meta", "tool_called": tool_called_name})
+                if final_response:
+                    yield emit({"type": "chunk", "content": final_response})
+            else:
+                clinical_update = clinical_node(state)
+                sentiment_update = sentiment_node(state)
+                state.update(clinical_update)
+                state.update(sentiment_update)
 
-            chunks = []
-            for content in stream_synthesis_response(messages):
-                chunks.append(content)
-                yield emit({"type": "chunk", "content": content})
+                messages = build_synthesis_messages(state)
+                tool_called_name = "ask_mental_state_specialist"
+                yield emit({"type": "meta", "tool_called": tool_called_name})
 
-            draft_response = "".join(chunks).strip()
-            guarded_state = {**state, "final_response": draft_response, "tool_called": tool_called_name}
-            guard_update = response_guard_node(guarded_state)
-            final_response = guard_update.get("final_response", draft_response).strip()
-            if final_response and final_response != draft_response:
-                yield emit({"type": "final", "content": final_response, "tool_called": tool_called_name})
+                chunks = []
+                for content in stream_synthesis_response(messages):
+                    chunks.append(content)
+                    yield emit({"type": "chunk", "content": content})
+
+                draft_response = "".join(chunks).strip()
+                guarded_state = {**state, "final_response": draft_response, "tool_called": tool_called_name}
+                guard_update = response_guard_node(guarded_state)
+                candidate_response = guard_update.get("final_response", draft_response).strip()
+                output_guard = apply_output_guardrails(query.message, candidate_response)
+                final_response = output_guard.safe_response.strip()
+                if output_guard.violations:
+                    tool_called_name = output_guard.tool_called
+                if final_response and final_response != draft_response:
+                    yield emit({"type": "final", "content": final_response, "tool_called": tool_called_name})
 
         if final_response:
             finalize_ai_response(query, user_message_id, final_response)
@@ -393,6 +404,48 @@ def iter_ndjson_stream(query: Query, prepared: dict):
         print(f"Streaming ask failed: {e}")
         error_message = "I'm sorry, something went wrong while streaming the response."
         yield emit({"type": "error", "content": error_message})
+
+def generate_guarded_response(query: Query, prepared: dict):
+    """Non-streaming equivalent of the guarded chat flow."""
+    inputs = prepared["inputs"]
+    input_guard = evaluate_input_guardrails(query.message)
+
+    if input_guard.route == "crisis_support":
+        return input_guard.tool_called, input_guard.safe_response
+
+    route = router_node(inputs)
+    intent = route.get("intent", "THERAPY")
+    state = {**inputs, **route}
+
+    if intent == "EMERGENCY":
+        return (
+            "guardrail_crisis_support",
+            input_guard.safe_response or (
+                "I'm concerned that this may be an immediate safety issue. Please call 988 now if you're in "
+                "the U.S. or contact local emergency services right away if you may act on these thoughts."
+            ),
+        )
+
+    if intent == "LOCATE_THERAPIST":
+        locator_update = locate_therapist_node(state)
+        return (
+            locator_update.get("tool_called", "locate_therapist_tool"),
+            locator_update.get("final_response", ""),
+        )
+
+    clinical_update = clinical_node(state)
+    sentiment_update = sentiment_node(state)
+    state.update(clinical_update)
+    state.update(sentiment_update)
+
+    messages = build_synthesis_messages(state)
+    draft_response = "".join(stream_synthesis_response(messages)).strip()
+    guarded_state = {**state, "final_response": draft_response, "tool_called": "ask_mental_state_specialist"}
+    guard_update = response_guard_node(guarded_state)
+    candidate_response = guard_update.get("final_response", draft_response).strip()
+    output_guard = apply_output_guardrails(query.message, candidate_response)
+    tool_called_name = output_guard.tool_called if output_guard.violations else "ask_mental_state_specialist"
+    return tool_called_name, output_guard.safe_response.strip()
 
 @app.post("/testbench/login")
 def testbench_login(login: TestbenchLogin):
@@ -450,8 +503,7 @@ def ask(query: Query, request: Request, background_tasks: BackgroundTasks, strea
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    run_stream = graph.stream(prepared["inputs"], stream_mode="updates")
-    tool_called_name, final_response = parse_response(run_stream)
+    tool_called_name, final_response = generate_guarded_response(query, prepared)
 
     if final_response:
         save_interaction(user_id=query.user_id, session_id=query.session_id, user_message=query.message, ai_response=final_response)

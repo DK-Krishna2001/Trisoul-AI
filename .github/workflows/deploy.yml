@@ -1,0 +1,71 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify backend source
+        run: python -m compileall -q backend
+
+      - name: Configure deployment SSH key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy and verify production
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+
+          cd /var/www/Trisoul-AI
+          previous_revision=$(git rev-parse HEAD)
+          git fetch --prune origin main
+          git checkout main
+          git reset --hard origin/main
+          if git diff --quiet "$previous_revision" HEAD -- requirements.txt backend/requirements.txt; then
+            echo "Python dependencies unchanged; skipping installation."
+          else
+            .venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+          fi
+          sudo systemctl restart trisoul.service
+
+          for attempt in {1..20}; do
+            if curl --fail --silent --show-error http://127.0.0.1:8000/docs >/dev/null; then
+              exit 0
+            fi
+            sleep 3
+          done
+
+          sudo systemctl status trisoul.service --no-pager -l
+          exit 1
+          REMOTE_SCRIPT

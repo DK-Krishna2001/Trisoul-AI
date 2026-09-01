@@ -52,11 +52,11 @@ def query_clinical(prompt: str, image_url: str = None) -> str:
 
 # Step2: Setup Twilio calling API tool
 from twilio.rest import Client
-from config import TWILLIO_ACCOUNT_KK, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, EMERGENCY_CONTACT
+from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, EMERGENCY_CONTACT
 
 def call_emergency():
     try:
-        client = Client(TWILLIO_ACCOUNT_KK, TWILIO_AUTH_TOKEN)
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         call = client.calls.create(
             to=EMERGENCY_CONTACT,
             from_=TWILIO_FROM_NUMBER,
