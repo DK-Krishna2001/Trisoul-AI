@@ -22,6 +22,8 @@ from ai_agent import (
     response_guard_node,
 )
 from guardrails import evaluate_input_guardrails, apply_output_guardrails
+from emergency_authorization import EmergencyCallAuthorizer
+from tools import call_emergency
 from memory import get_relevant_history, save_interaction
 from firebase_db import (
     save_mood, get_mood_history, get_session_mood_history, save_chat_message, 
@@ -47,6 +49,7 @@ app.add_middleware(
 )
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+emergency_call_authorizer = EmergencyCallAuthorizer()
 
 def get_verified_user_id(authorization: str | None = Header(None)) -> str:
     if not authorization:
@@ -205,6 +208,11 @@ class TestbenchLogin(BaseModel):
     password: str
 
 
+class EmergencyCallRequest(BaseModel):
+    session_id: str
+    authorization_token: str
+
+
 class TherapistBenchmarkAccess(BaseModel):
     password: str
     user_id_prefix: str = "bench_"
@@ -316,6 +324,15 @@ def finalize_ai_response(query: Query, user_message_id: int, final_response: str
     generate_and_save_title(query.user_id, query.session_id)
 
 
+def emit_emergency_call_offer(query: Query) -> dict:
+    """Create a short-lived token for a user-confirmed emergency-contact call."""
+    return {
+        "type": "emergency_call_offer",
+        "authorization_token": emergency_call_authorizer.issue(query.user_id, query.session_id),
+        "expires_in_seconds": emergency_call_authorizer.ttl_seconds,
+    }
+
+
 def iter_ndjson_stream(query: Query, prepared: dict):
     """Streaming chat response that keeps existing routing/tool behavior intact."""
     inputs = prepared["inputs"]
@@ -334,6 +351,8 @@ def iter_ndjson_stream(query: Query, prepared: dict):
             tool_called_name = input_guard.tool_called
             final_response = input_guard.safe_response
             yield emit({"type": "meta", "tool_called": tool_called_name})
+            if input_guard.trigger_emergency_call:
+                yield emit(emit_emergency_call_offer(query))
             yield emit({"type": "chunk", "content": final_response})
         else:
             route = router_node(inputs)
@@ -404,6 +423,27 @@ def iter_ndjson_stream(query: Query, prepared: dict):
         print(f"Streaming ask failed: {e}")
         error_message = "I'm sorry, something went wrong while streaming the response."
         yield emit({"type": "error", "content": error_message})
+
+
+@app.post("/emergency-call")
+def confirm_emergency_call(
+    request: EmergencyCallRequest,
+    verified_user_id: str = Depends(get_verified_user_id),
+):
+    """Place one user-confirmed call after a high-risk guardrail authorization."""
+    if not emergency_call_authorizer.consume(
+        request.authorization_token,
+        verified_user_id,
+        request.session_id,
+    ):
+        raise HTTPException(status_code=403, detail="Emergency call authorization is invalid or expired")
+
+    result = call_emergency()
+    if not result.startswith("Emergency call placed successfully"):
+        print(f"Emergency call failed: {result}")
+        raise HTTPException(status_code=502, detail="Unable to place the emergency call")
+
+    return {"status": "initiated"}
 
 def generate_guarded_response(query: Query, prepared: dict):
     """Non-streaming equivalent of the guarded chat flow."""

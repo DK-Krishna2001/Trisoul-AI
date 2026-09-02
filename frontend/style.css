@@ -931,6 +931,39 @@ input[type="text"]::placeholder {
     font-style: italic;
 }
 
+.emergency-call-action {
+    display: grid;
+    gap: 8px;
+    margin-top: 16px;
+    padding: 14px;
+    border: 1px solid rgba(252, 129, 129, 0.55);
+    border-radius: 12px;
+    background: rgba(127, 29, 29, 0.2);
+    color: var(--text-primary);
+}
+
+.emergency-call-action span {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.emergency-call-button {
+    width: fit-content;
+    border: 0;
+    border-radius: 8px;
+    padding: 10px 14px;
+    background: #c53030;
+    color: #fff;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.emergency-call-button:disabled {
+    cursor: wait;
+    opacity: 0.7;
+}
+
 /* Markdown Specifics inside messages */
 .markdown-body p {
     margin-bottom: 0.8rem;

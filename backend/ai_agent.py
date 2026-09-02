@@ -2,10 +2,11 @@ import json
 import googlemaps
 import time
 import re
-from typing import TypedDict, Annotated, Sequence, Any
+from typing import TypedDict, Annotated, Sequence, Any, Literal
 import operator
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 
 from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
@@ -19,8 +20,16 @@ gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
 # ==========================================
 # 1. Models Initialization
 # ==========================================
-# Fast router/sentiment models 
-llm_fast = ChatGroq(model="llama-3.1-8b-instant", temperature=0.0, api_key=GROQ_API_KEY) 
+# Fast tasks use the supported successor to Groq's retired Llama 3.1 8B model.
+FAST_MODEL = "openai/gpt-oss-20b"
+FAST_REASONING_EFFORT = "low"
+ROUTER_OUTPUT_METHOD = "json_schema"
+llm_fast = ChatGroq(
+    model=FAST_MODEL,
+    temperature=0.0,
+    reasoning_effort=FAST_REASONING_EFFORT,
+    api_key=GROQ_API_KEY,
+)
 # Synthesis Model
 llm_text = ChatGroq(model="openai/gpt-oss-120b", temperature=0.2, api_key=GROQ_API_KEY) 
 
@@ -38,6 +47,21 @@ class AgentState(TypedDict):
     intent: str
     image_url: str
     client_ip: str
+
+
+class IntentDecision(BaseModel):
+    """The only valid intent outcomes for chat routing."""
+
+    intent_type: Literal["EMERGENCY", "LOCATE_THERAPIST", "THERAPY"] = Field(
+        description="The action category selected for the user's message."
+    )
+
+
+# Keep strict JSON confined to routing. Other llm_fast tasks return plain text.
+llm_router = llm_fast.with_structured_output(
+    IntentDecision,
+    method=ROUTER_OUTPUT_METHOD,
+)
 
 
 # ==========================================
@@ -61,25 +85,25 @@ def parse_json_object(content: str) -> dict:
         return json.loads(match.group(0))
 
 def router_node(state: AgentState):
-    """Extremely fast zero-shot intent classifier."""
+    """Fast, schema-validated intent classifier."""
     user_msg = state.get("user_message", "")
-    
-    prompt = f"""
-    Analyze the user's message and determine the INTENT.
-    Output ONLY a valid JSON object with a single key "intent_type".
-    
-    Options for "intent_type":
-    1. "EMERGENCY" - user expresses severe self-harm, suicidal ideation, or crisis.
-    2. "LOCATE_THERAPIST" - user asks to find a clinic, therapist, psychiatric hospital, or professional help near a location.
-    3. "THERAPY" - for general chat, feelings, emotion, anxiety, sadness, routine therapy.
-    
-    User Message: "{user_msg}"
-    """
-    
+
+    prompt = """
+Classify the user's message into exactly one intent.
+
+- EMERGENCY: immediate self-harm, suicidal intent, or severe crisis.
+- LOCATE_THERAPIST: asks to find a therapist, clinic, psychiatric hospital, or professional help near a location.
+- THERAPY: general emotional support, feelings, anxiety, sadness, or routine therapy.
+
+Return only the schema-conforming intent decision. Do not provide advice or explanation.
+"""
+
     try:
-        response = llm_fast.invoke([SystemMessage(content=prompt)])
-        data = parse_json_object(response.content)
-        intent = data.get("intent_type", "THERAPY")
+        response = llm_router.invoke([
+            SystemMessage(content=prompt),
+            HumanMessage(content=user_msg),
+        ])
+        intent = response.intent_type
     except Exception as e:
         print(f"Router fast-fail, defaulting to THERAPY: {e}")
         intent = "THERAPY"

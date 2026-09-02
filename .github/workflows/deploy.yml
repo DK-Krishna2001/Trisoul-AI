@@ -25,9 +25,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
-      - name: Verify backend source
-        run: python -m compileall -q backend
+      - name: Install verification dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt pytest
+
+      - name: Verify backend behavior
+        run: |
+          python -m compileall -q backend
+          pytest backend/test_guardrails.py backend/test_fast_router.py backend/test_emergency_authorization.py
 
       - name: Configure deployment SSH key
         env:

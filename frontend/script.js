@@ -422,6 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let streamedText = "";
                 let finalText = "";
                 let toolCalled = "None";
+                let emergencyCallOffer = null;
 
                 while (true) {
                     const { value, done } = await reader.read();
@@ -437,19 +438,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         if (event.type === "meta") {
                             toolCalled = event.tool_called || "None";
+                        } else if (event.type === "emergency_call_offer") {
+                            emergencyCallOffer = event;
                         } else if (event.type === "chunk") {
                             streamedText += event.content || "";
                             const toolHtml = toolCalled && toolCalled !== "None"
                                 ? `<span class="tool-badge"><i class="fa-solid fa-wrench"></i> Utilized: ${toolCalled}</span>`
                                 : "";
-                            updateMessageContent(aiMessageId, streamedText, toolHtml);
+                            updateMessageContent(aiMessageId, streamedText, `${buildEmergencyCallAction(emergencyCallOffer)}${toolHtml}`);
+                            bindEmergencyCallAction(aiMessageId, emergencyCallOffer);
                         } else if (event.type === "final") {
                             finalText = event.content || streamedText;
                             toolCalled = event.tool_called || toolCalled;
                             const toolHtml = toolCalled && toolCalled !== "None"
                                 ? `<span class="tool-badge"><i class="fa-solid fa-wrench"></i> Utilized: ${toolCalled}</span>`
                                 : "";
-                            updateMessageContent(aiMessageId, finalText, toolHtml);
+                            updateMessageContent(aiMessageId, finalText, `${buildEmergencyCallAction(emergencyCallOffer)}${toolHtml}`);
+                            bindEmergencyCallAction(aiMessageId, emergencyCallOffer);
                         } else if (event.type === "done") {
                             finalText = event.content || finalText || streamedText || "Something went wrong.";
                             toolCalled = event.tool_called || toolCalled;
@@ -459,7 +464,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             const toolHtml = toolCalled && toolCalled !== "None"
                                 ? `<span class="tool-badge"><i class="fa-solid fa-wrench"></i> Utilized: ${toolCalled}</span>`
                                 : "";
-                            updateMessageContent(aiMessageId, finalText, toolHtml);
+                            updateMessageContent(aiMessageId, finalText, `${buildEmergencyCallAction(emergencyCallOffer)}${toolHtml}`);
+                            bindEmergencyCallAction(aiMessageId, emergencyCallOffer);
                         } else if (event.type === "error") {
                             updateMessageContent(aiMessageId, event.content || "Something went wrong.");
                         }
@@ -566,6 +572,53 @@ document.addEventListener('DOMContentLoaded', () => {
         function removeElement(id) {
             const el = document.getElementById(id);
             if (el) el.remove();
+        }
+
+        function buildEmergencyCallAction(offer) {
+            if (!offer?.authorization_token) return "";
+
+            return `
+                <div class="emergency-call-action">
+                    <strong>Immediate support is available.</strong>
+                    <span>This will call your configured emergency contact from Trisoul's toll-free number.</span>
+                    <button type="button" class="emergency-call-button" data-emergency-token="${offer.authorization_token}">
+                        <i class="fa-solid fa-phone"></i> Call my emergency contact
+                    </button>
+                </div>`;
+        }
+
+        function bindEmergencyCallAction(messageId, offer) {
+            if (!offer?.authorization_token) return;
+            const button = document.querySelector(`#${messageId} .emergency-call-button`);
+            if (!button || button.dataset.bound === "true") return;
+
+            button.dataset.bound = "true";
+            button.addEventListener("click", async () => {
+                if (!window.confirm("Call your configured emergency contact now?")) return;
+
+                button.disabled = true;
+                button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Placing call...';
+                try {
+                    const response = await apiFetch(`${BACKEND_URL}/emergency-call`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            session_id: currentSessionId,
+                            authorization_token: offer.authorization_token,
+                        }),
+                    });
+                    if (!response.ok) {
+                        const error = new Error(`Emergency call failed with status ${response.status}`);
+                        error.status = response.status;
+                        throw error;
+                    }
+                    button.innerHTML = '<i class="fa-solid fa-circle-check"></i> Call initiated';
+                } catch (error) {
+                    button.disabled = true;
+                    button.innerHTML = '<i class="fa-solid fa-phone"></i> Call request sent';
+                    console.error("Emergency call request failed", error);
+                }
+            });
         }
 
         function scrollToBottom() {
