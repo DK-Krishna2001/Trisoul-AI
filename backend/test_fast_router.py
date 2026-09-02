@@ -4,7 +4,8 @@ from pydantic import ValidationError
 
 # Importing the graph constructs SDK clients, but these tests never invoke them.
 os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
-os.environ.setdefault("GOOGLE_MAPS_API_KEY", "test-maps-key")
+# googlemaps validates the API-key format on client construction; this is inert.
+os.environ.setdefault("GOOGLE_MAPS_API_KEY", "AIza" + "x" * 35)
 
 import ai_agent
 
